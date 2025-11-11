@@ -92,6 +92,7 @@ extern "C" _GENX_MAIN_ void cm_kmean(int seqlen, int seq_blk, half* k_ptr [[type
 #if CMFLA_QK_FUSED
     uint constexpr TOTAL_HEADS = (CMFLA_NUM_KV_HEADS+CMFLA_NUM_KV_HEADS+CMFLA_NUM_HEADS);
     auto offset = ((seq_start *TOTAL_HEADS  + kvhead + CMFLA_NUM_HEADS)*CMFLA_HEAD_SIZE + sblk_idx*CMKMEAN_STATE_BLK);
+    k_ptr += offset;
     //don't know why, when lowering down pitch can achive 385.64 GB/S, just a test.
     //TLB issue?
     //auto pitch = (TOTAL_HEADS-1)*HEAD_SZ;
