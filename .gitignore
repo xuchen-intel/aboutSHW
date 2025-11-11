@@ -10,3 +10,4 @@ a.out
 *.asm
 *.visaasm
 *.dat
+opencl/clops/cl/*
