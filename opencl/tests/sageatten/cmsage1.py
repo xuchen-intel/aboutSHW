@@ -223,15 +223,15 @@ if __name__ == "__main__":
     # for seqlen in range(1025, 1055, 1):
     #     test_sage_attn_causal_batch1(seqlen, num_heads = 28, num_kv_heads = 4, head_size = 128)
 
-    for seqlen in range(9216, 9217, 1024):
+    for seqlen in range(8192, 8193, 1024):
         # todo: add other head_size support,cmload limitation.
-        for head_size in range(160, 192, 32):
+        for head_size in range(128, 160, 32):
             print(f'-----------------------------------------------')
             print(f'seq={seqlen}, head_size={head_size}')
             print(f'-----------------------------------------------')
-            test_sage_attn_causal_batch1(seqlen, num_heads = 28, num_kv_heads = 4, head_size = head_size, qkfused=False, vfused=False)
-            test_sage_attn_causal_batch1(seqlen, num_heads = 28, num_kv_heads = 4, head_size = head_size, qkfused=True, vfused=True)
-            test_sage_attn_causal_batch1(seqlen, num_heads = 28, num_kv_heads = 4, head_size = head_size, qkfused=False, vfused=True)
+            test_sage_attn_causal_batch1(seqlen, num_heads = 32, num_kv_heads = 8, head_size = head_size, qkfused=False, vfused=False)
+            test_sage_attn_causal_batch1(seqlen, num_heads = 32, num_kv_heads = 8, head_size = head_size, qkfused=True, vfused=True)
+            test_sage_attn_causal_batch1(seqlen, num_heads = 32, num_kv_heads = 8, head_size = head_size, qkfused=False, vfused=True)
 
     # test_sage_attn_causal_batch1(1025, num_heads = 28, num_kv_heads = 4, head_size = 96)
 
