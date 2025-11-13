@@ -414,6 +414,16 @@ void sage_sdpa_kernel_lsc_prefetch(
     svmptr_t k_scale_base [[type("svmptr_t")]],
     svmptr_t o_base [[type("svmptr_t")]]) {
 
+    int continue_thresh = 2 * 8192;
+    bool till_load_q_end = false;
+    bool till_q_mul_k_end = false;
+    bool till_dq_end = false;
+    bool till_apply_mask_end = false;
+    bool till_online_softmax_end = false;
+    bool till_transpose_p_end = false;
+    bool till_max_compensation_end = false;
+    bool till_p_mul_v_end = false;
+    bool till_sum_compensation_end = false;
 
     constexpr uint fused_pitch = ((num_heads + num_kv_heads*2) * head_size * sizeof(half));
     constexpr uint o_pitch = (num_heads * head_size * sizeof(half));
@@ -480,6 +490,9 @@ void sage_sdpa_kernel_lsc_prefetch(
         //# St = k @ Qt
         matrix<float, kv_step, q_step> St; // = ugemm_KQ(slm_K, rQ, slm_offset);
         {
+            if (till_load_q_end && kv_pos < continue_thresh)
+                continue;
+
             cm_load<lsc::Normal>(k_scales, b2dKscale.set_block_x(kv_pos));
 
             constexpr int num_K = kv_step/REG_M;
@@ -512,6 +525,10 @@ void sage_sdpa_kernel_lsc_prefetch(
                         Kmat[k].format<int32_t>());
                 }
             }
+
+            if (till_q_mul_k_end && kv_pos < continue_thresh)
+                continue;
+
             //cm_prefetch<CacheHint::Cached, CacheHint::Cached>(b2dKscale.set_block_x(kv_pos+kv_step));
             auto Quan_St = St2.format<int32_t, kv_step, q_step>();
 
@@ -521,6 +538,9 @@ void sage_sdpa_kernel_lsc_prefetch(
                 St[r] = cm_mul<float>(St[r], q_scales);
             }
         }
+
+        if (till_dq_end && kv_pos < continue_thresh)
+            continue;
 
         if constexpr (use_causal_mask) {
             // since kv_step == q_step == 16, causal_left is n*kv_step
@@ -536,11 +556,20 @@ void sage_sdpa_kernel_lsc_prefetch(
             for(int p = kv_tokens; p < kv_step; p++) St[p] = -3.4e38f;
         }
 
+        if (till_apply_mask_end && kv_pos < continue_thresh)
+            continue;
+
         //show(St);
         auto max_comp = online_softmax_update(St, cur_max, cur_sum);
 
+        if (till_online_softmax_end && kv_pos < continue_thresh)
+            continue;
+
         matrix<half, REG_N, REG_K> P;
         Transpose2DMatrix(St, P);
+
+        if (till_transpose_p_end && kv_pos < continue_thresh)
+            continue;
 
         b2dV.set_block_y(kv_pos);
         prefetch_V.set_block_y(wg_local_id +kv_pos + kv_step);
@@ -549,9 +578,13 @@ void sage_sdpa_kernel_lsc_prefetch(
             auto P2 = P.format<half, num_P_tiles, REG_M * REG_K>();
             #pragma unroll
             for(int k = 0, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+                if (till_max_compensation_end && kv_pos < continue_thresh)
+                    continue;
+
                 matrix<half, REG_K/2, REG_N*2> Vmat;
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
                     rO[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
@@ -580,6 +613,9 @@ void sage_sdpa_kernel_lsc_prefetch(
                         cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
                 }
 
+                if (till_max_compensation_end && kv_pos < continue_thresh)
+                    continue;
+
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
                     rO[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
@@ -600,6 +636,10 @@ void sage_sdpa_kernel_lsc_prefetch(
 
     #pragma unroll
     for(int k = 0, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+        if ((till_load_q_end || till_q_mul_k_end || till_dq_end || till_apply_mask_end || till_online_softmax_end ||
+            till_transpose_p_end ||till_max_compensation_end || till_p_mul_v_end) && kv_stop < continue_thresh)
+            continue;
+
         #pragma unroll
         for(int p = 0; p < num_P_tiles; p++) {
             auto cO = rO[ri + p].format<float, REG_M, REG_N>();
@@ -609,6 +649,10 @@ void sage_sdpa_kernel_lsc_prefetch(
             }
         }
         b2dO.set_block_x(k);
+
+        if (till_sum_compensation_end && kv_stop < continue_thresh)
+            continue;
+
         cm_store(b2dO.set_block_y(0), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
         cm_store(b2dO.set_block_y(REG_M), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
     }
