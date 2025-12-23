@@ -568,8 +568,8 @@ void sage_sdpa_kernel_lsc_prefetch(
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
 
                 #pragma unroll
-                for(int p = 0; p < num_P_tiles; p++) {
-                    rO[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                for(int p = 0; p < 1; p++) {
+                    rO[ri + p] = cm_dpas<CM_PRECISION_S8, CM_PRECISION_S8, SystolicDepth, RepeatCount, int32_t>(
                                     0,
                                     Vmat.format<int32_t>(),
                                     P2.row(p).format<int32_t>());
@@ -599,9 +599,9 @@ void sage_sdpa_kernel_lsc_prefetch(
                     continue;
 
                 #pragma unroll
-                for(int p = 0; p < num_P_tiles; p++) {
-                    rO[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
-                                rO[ri + p].format<float>(),
+                for(int p = 0; p < 1; p++) {
+                    rO[ri + p] = cm_dpas<CM_PRECISION_S8, CM_PRECISION_S8, SystolicDepth, RepeatCount>(
+                                rO[ri + p].format<int32_t>(),
                                 Vmat.format<int32_t>(),
                                 P2.row(p).format<int32_t>());
                 }
