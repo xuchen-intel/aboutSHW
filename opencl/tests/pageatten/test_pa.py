@@ -509,7 +509,7 @@ def count_false_percentage(mask):
         false_percentage = 0.0
     return false_percentage
 
-def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, head_size = 80, block_sz=128, trunk_sz=512, compressed_kvcache=False, sparse_block_sz=128, sparse_ratio=0.5, check_acc = True):
+def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, head_size = 80, block_sz=128, trunk_sz=512, compressed_kvcache=0, sparse_block_sz=128, sparse_ratio=0.5, check_acc = True):
     cl.profiling(True)
     torch.manual_seed(0)
     torch.set_printoptions(linewidth=1024)
@@ -520,11 +520,16 @@ def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, hea
     q = torch.randint(low, high, [seq_len, num_heads, head_size]).to(dtype=act_dtype)
     density = 1.0
 
-    if compressed_kvcache:
+    if compressed_kvcache == 1:
         k = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype) / 4.0
         k[0:seq_len:3, :, :] = (k[0:seq_len:3, :, :] + 0.25)/ 2.0
         v = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype)/high
         v[0:seq_len:3, :, :] = (v[0:seq_len:3, :, :] + 0.25)/ 2.0
+    elif compressed_kvcache == 2:
+        k = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype) / 4.0
+        k[:, :, 0:head_size:3] = (k[:, :, 0:head_size:3] + 0.25)/ 2.0
+        v = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype)/high
+        v[:, :, 0:head_size:3] = (v[:, :, 0:head_size:3] + 0.25)/ 2.0
     else:
         k = torch.rand(seq_len, num_kv_heads, head_size).to(dtype=act_dtype)
         v = torch.rand(seq_len, num_kv_heads, head_size).to(dtype=act_dtype)/high
@@ -660,7 +665,7 @@ def test_ov():
         print(f'checked {files_checked} files')
         return is_tril & files_checked > 0
 
-    compressed_kvcache = True
+    compressed_kvcache = 1
     xattn_thresh = 100
     sparse_block_sz, kv_block_size, trunk_sz = 128, 256, 4096 # trunk_sz no use
     num_heads, num_kv_heads, head_size = 64, 8, 128
@@ -808,13 +813,13 @@ def test_ov():
 
 if __name__ == "__main__":
 
-    # test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=True, sparse_block_sz = sparse_block_sz, sparse_ratio=sparse_ratio, check_acc=True)
+    # test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=sparse_ratio, check_acc=True)
     #ACC test PA base
     if 0:
         for block_sz in range(32, 144, 16):
             for blocks_per_trunk in range(1, 30, 6):
                 for seq_len in range(8192, 8248, 3):
-                    for compressed_kv in [False, True]:
+                    for compressed_kv in [0, 1]:
                         print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                         print(f'[PA_BASE_ACC_TETS]: seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} kv_cache=={"U8" if compressed_kv else "F16"} sparse_block_sz=1')
                         print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
@@ -824,7 +829,7 @@ if __name__ == "__main__":
         for block_sz in range(128, 257, 32):
                 for seq_len in range(32768, 32810):
                     for trunk_num in range(1, 21):
-                        for compressed_kvcache in [True,False,]:
+                        for compressed_kvcache in [1,0,]:
                             seq_in_blks = (seq_len + block_sz -1 ) // block_sz
                             blocks_per_trunk = seq_in_blks // trunk_num if seq_in_blks % trunk_num == 0 else seq_in_blks // (trunk_num - 1)
                             print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
@@ -839,7 +844,7 @@ if __name__ == "__main__":
                 for sparse_ratio in [0.5, 0.75]:
                     for blocks_per_trunk in [1, 15, 16, 17, 32, 300]:
                         for seq_len in [16*15, 16*16, 16*16+1, 1024, 1024+1, 8*1024, 8*1024+3, 16*1024]:
-                            for compressed_kvcache in [True,False,]:
+                            for compressed_kvcache in [1,0,]:
                                 print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                                 print(f'[XATTENION_ACC_TETS]:seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} kv_cache={"U8" if compressed_kvcache else "F16"} {sparse_block_sz=} {sparse_ratio=}')
                                 print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
