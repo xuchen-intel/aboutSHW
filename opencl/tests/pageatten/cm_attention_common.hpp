@@ -33,6 +33,7 @@ static_assert(__cplusplus >= 201703L);
 
 #define kv_step  REG_K
 #define q_step   REG_N
+#define sub_blk_size kv_step
 
 constexpr float scale_factor = CMFLA_SCALE_FACTOR;
 
