@@ -34,6 +34,8 @@ def quan_per_token(kv):
         INTMIN = 0.0
         INTRAGNE = INTMAX - INTMIN
         kv_scale = ((INTRAGNE)/qrange).to(dtype=torch.half)
+        # print("### kv_scale.dtype: ", kv_scale.dtype)
+        # print("### kv_scale.shape: ", kv_scale.shape)
         kv_zp = ((0.0-kv_min)*kv_scale+INTMIN).to(dtype=torch.half)
         #round half to even
         kv_INT8 = torch.round((kv*kv_scale+kv_zp)).to(dtype=torch.uint8).reshape(blk_num,kv_heads,-1)
@@ -45,7 +47,15 @@ def quan_per_token(kv):
         # print("################################################################################")
 
         dq_scale = (1.0/kv_scale).view(dtype=torch.uint8).reshape(blk_num,kv_heads,-1)
+        # print("### dq_scale.dtype: ", dq_scale.dtype)
+        # print("### dq_scale.shape: ", dq_scale.shape)
         kv_zp = kv_zp.view(dtype=torch.uint8).reshape(blk_num,kv_heads,-1)
+        # print("### kv_INT8.dtype: ", kv_INT8.dtype)
+        # print("### kv_INT8.shape: ", kv_INT8.shape)
+        # print("### dq_scale.dtype: ", dq_scale.dtype)
+        # print("### dq_scale.shape: ", dq_scale.shape)
+        # print("### kv_zp.dtype: ", kv_zp.dtype)
+        # print("### kv_zp.shape: ", kv_zp.shape)
         return torch.concat((kv_INT8, dq_scale, kv_zp), dim=-1)
 
 def dequant_per_token(kv, head_size, blk_size):
@@ -109,6 +119,13 @@ class page_atten_cm:
         old_dtype = q.dtype
         total_heads = (self.num_heads + self.num_kv_heads * 2)
 
+        # print("### q.dtype: ", q.dtype)
+        # print("### q.shape: ", q.shape)
+        # print("### k.dtype: ", k.dtype)
+        # print("### k.shape: ", k.shape)
+        # print("### v.dtype: ", v.dtype)
+        # print("### v.shape: ", v.shape)
+
         assert head_size == self.head_size
         #align seqlen with block_sz.  block is the PA K/V cache minimum unit.
         aligned_seqlen = seq_len
@@ -128,9 +145,13 @@ class page_atten_cm:
         # print(f'k.shape:{k.shape}, padded_k.shape:{padded_k.shape}')
         # reorder K,V from [L, H, S] to [block_num, H, block_size, S]
         k_cache = padded_k.reshape(aligned_seqlen//self.block_sz, self.block_sz, self.num_kv_heads, self.head_size).transpose(1,2).contiguous()
+        # print("### k_cache.dtype: ", k_cache.dtype)
+        # print("### k_cache.shape: ", k_cache.shape)
         v_cache = padded_v.reshape(aligned_seqlen//self.block_sz, self.block_sz, self.num_kv_heads, self.head_size).transpose(1,2).contiguous()
         if self.compressed_kvcache:
             k_cache = quan_per_token(k_cache)
+            # print("### compressed k_cache.dtype: ", k_cache.dtype)
+            # print("### compressed k_cache.shape: ", k_cache.shape)
             v_cache = quan_per_token(v_cache)
         else:
             k_cache = k_cache.reshape(aligned_seqlen//self.block_sz, self.num_kv_heads, -1)
@@ -138,11 +159,14 @@ class page_atten_cm:
         #output memory for the whole SDPA
         output = torch.zeros(seq_len, self.num_heads, self.head_size).to(torch.float16)
         blks_per_trunk = self.trunk_sz // self.block_sz
+        # print("### blks_per_trunk: ", blks_per_trunk)
         assert aligned_seqlen % self.block_sz==0, f'Error: aligned_seqlen must be multiple of block_sz'
         # Q[L, H, S]
         # K/V: [blk_num, H, blk_sz, S]
         trunk_num = (aligned_seqlen+ self.trunk_sz - 1) // self.trunk_sz
         max_blks = aligned_seqlen // self.block_sz
+        # print("### trunk_num: ", trunk_num)
+        # print("### max_blks: ", max_blks)
 
         kv_dtype = torch.uint8 if self.compressed_kvcache else torch.half
         #extra half zp and half scale per token. totally 4 bytes.
@@ -170,12 +194,21 @@ class page_atten_cm:
 
                 sub_block_mask_in_wg = torch.zeros(self.num_heads, wg_count, kv_block_num).to(torch.bool)
 
+                # print("### wg_seq_len: ", wg_seq_len)
+                # print("### wg_count: ", wg_count)
+                # print("### kv_len: ", kv_len)
+                # print("### q_block_num: ", q_block_num)
+                # print("### kv_block_num: ", kv_block_num)
+                # print("### sub_block_mask.shape: ", sub_block_mask.shape)
+                # print("### sub_block_mask_in_wg.shape: ", sub_block_mask_in_wg.shape)
+
                 for head_idx in range(0, self.num_heads):
                     for wg_id in range(0, wg_count):
                         # default skip all the blocks.
                         sub_block_mask_in_wg[head_idx, wg_id, :] = False
                         qblk_start_wg = wg_id*wg_seq_len // self.sparse_block_sz
                         qblk_end_wg = DIV_UP(min(wg_id*wg_seq_len + wg_seq_len, q_len), self.sparse_block_sz)
+                        # print("### qblk_start_wg, qblk_end_wg: ", qblk_start_wg, qblk_end_wg)
                         # print(f'############qblk_start_wg = {qblk_start_wg}, qblk_end_wg = {qblk_end_wg}, submask shape = {sub_block_mask.shape}')
                         for kv_blk_idx in range(0, kv_block_num):
                             for qblk_idx in range(qblk_start_wg, qblk_end_wg):
@@ -204,6 +237,14 @@ class page_atten_cm:
                 q_end =  min(q_start + self.trunk_sz, seq_len)
                 q_len = q_end - q_start
                 sub_q = q[q_start:q_end, :]
+                # print("### q_start: ", q_start)
+                # print("### q_end: ", q_end)
+                print("### sub_q.dtype: ", sub_q.dtype)
+                print("### sub_q.shape: ", sub_q.shape)
+                print("### sub_k.dtype: ", sub_k.dtype)
+                print("### sub_k.shape: ", sub_k.shape)
+                print("### sub_v.dtype: ", sub_v.dtype)
+                print("### sub_v.shape: ", sub_v.shape)
 
                 wg_size = 16
                 q_step = CM_GRF_WIDTH // 32 # or 8 on Xe1
@@ -245,6 +286,11 @@ class page_atten_cm:
                 past_lens=torch.tensor([trunk_idx*self.trunk_sz]).to(torch.int32)
                 block_indices_begins=torch.tensor([0, blk_num]).to(torch.int32)
                 subsequence_begins=torch.tensor([0,q_len]).to(torch.int32)
+                # print("### past_lens: ", past_lens)
+                # print("### block_indices: ", block_indices)
+                # print("### block_indices_begins: ", block_indices_begins)
+                # print("### np.array(block_mask_list).shape: ", np.array(block_mask_list).shape)
+                # print("### np.array(block_mask_in_wg_list).shape: ", np.array(block_mask_in_wg_list).shape)
 
                 t_block_indices=cl.tensor(block_indices.to(torch.int32).detach().numpy())
                 t_past_lens=cl.tensor(past_lens.to(torch.int32).detach().numpy())
