@@ -525,16 +525,11 @@ def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, hea
     q = torch.randint(low, high, [seq_len, num_heads, head_size]).to(dtype=act_dtype)
     density = 1.0
 
-    if compressed_kvcache == 1:
+    if compressed_kvcache:
         k = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype) / 4.0
         k[0:seq_len:3, :, :] = (k[0:seq_len:3, :, :] + 0.25)/ 2.0
         v = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype)/high
         v[0:seq_len:3, :, :] = (v[0:seq_len:3, :, :] + 0.25)/ 2.0
-    elif compressed_kvcache == 2:
-        k = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype) / 4.0
-        k[:, :, 0:head_size:3] = (k[:, :, 0:head_size:3] + 0.25)/ 2.0
-        v = torch.randint(low, high, [seq_len, num_kv_heads, head_size]).to(dtype=act_dtype)/high
-        v[:, :, 0:head_size:3] = (v[:, :, 0:head_size:3] + 0.25)/ 2.0
     else:
         k = torch.rand(seq_len, num_kv_heads, head_size).to(dtype=act_dtype)
         v = torch.rand(seq_len, num_kv_heads, head_size).to(dtype=act_dtype)/high
