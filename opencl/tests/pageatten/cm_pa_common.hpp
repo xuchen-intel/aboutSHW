@@ -72,7 +72,7 @@ void pa_lsc_u8(
     lsc::block_2d_desc<uint8_t, 1, REG_K, REG_N> b2dV(v_cache_base, CMPA_BLOCK_SZ - 1, head_size*sizeof(uint8_t) - 1, kv_pitch - 1, 0, 0);
     constexpr int k_quan_blk_stride = CMPA_KVCACHE_U8 == 1 ?
                                       CMFLA_NUM_KV_HEADS * (CMFLA_HEAD_SIZE + 4) * CMPA_BLOCK_SZ * sizeof(uint8_t) :
-                                      CMFLA_NUM_KV_HEADS * CMFLA_HEAD_SIZE * (CMPA_BLOCK_SZ + CMPA_BLOCK_SZ / sub_blk_size * 4) * sizeof(uint8_t);
+                                      CMFLA_NUM_KV_HEADS * CMFLA_HEAD_SIZE * (CMPA_BLOCK_SZ + CMPA_BLOCK_SZ / CMPA_SUB_BLOCK_SZ * 4) * sizeof(uint8_t);
     constexpr int v_quan_blk_stride = CMFLA_NUM_KV_HEADS * (CMFLA_HEAD_SIZE + 4) * CMPA_BLOCK_SZ * sizeof(uint8_t);
     int causal_left = q_start+past_lens;
 
@@ -109,10 +109,10 @@ void pa_lsc_u8(
                                        cur_block_id * k_quan_blk_stride + CMPA_BLOCK_SZ * head_size * sizeof(uint8_t) +
                                        kv_pos % CMPA_BLOCK_SZ * sizeof(half) :
                                        cur_block_id * k_quan_blk_stride + CMPA_BLOCK_SZ * head_size * sizeof(uint8_t) +
-                                       (kv_pos % CMPA_BLOCK_SZ) / sub_blk_size * head_size *sizeof(half);
+                                       (kv_pos % CMPA_BLOCK_SZ) / CMPA_SUB_BLOCK_SZ * head_size *sizeof(half);
             uint32_t k_zp_offset = CMPA_KVCACHE_U8 == 1 ?
                                    k_dscale_offset + CMPA_BLOCK_SZ * sizeof(half) :
-                                   k_dscale_offset + CMPA_BLOCK_SZ / sub_blk_size * head_size * sizeof(half);
+                                   k_dscale_offset + CMPA_BLOCK_SZ / CMPA_SUB_BLOCK_SZ * head_size * sizeof(half);
             uint32_t v_dscale_offset = cur_block_id * v_quan_blk_stride + CMPA_BLOCK_SZ * head_size * sizeof(uint8_t) +
                                        kv_pos % CMPA_BLOCK_SZ * sizeof(half);
             uint32_t v_zp_offset = v_dscale_offset + CMPA_BLOCK_SZ * sizeof(half);

@@ -143,7 +143,7 @@ def ALIGN_UP(x, y):
 def DIV_UP(x, y):
     return (x + y -1) // y
 class page_atten_cm:
-    def __init__(self, num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, is_causal = True, sparse_block_sz = 128):
+    def __init__(self, num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, sub_block_sz, is_causal = True, sparse_block_sz = 128):
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
@@ -153,6 +153,7 @@ class page_atten_cm:
         self.trunk_sz = trunk_sz
         self.sparse_block_sz = sparse_block_sz
         self.compressed_kvcache = compressed_kvcache
+        self.sub_block_sz = sub_block_sz
 
         src1 = r'''#include "cm_pa_kernel.hpp"'''
         cwd = os.path.dirname(os.path.realpath(__file__))
@@ -169,6 +170,7 @@ class page_atten_cm:
                       f" -DCMPA_BLOCK_SZ={self.block_sz}"
                       f" -DSPARSE_BLOCK_SIZE={int(sparse_block_sz)}"
                       f" -DCMPA_KVCACHE_U8={int(compressed_kvcache)}"
+                      f" -DCMPA_SUB_BLOCK_SZ={self.sub_block_sz}"
                       f" -mdump_asm -g2")
                      )
 
@@ -208,13 +210,11 @@ class page_atten_cm:
         # print("### k_cache.dtype: ", k_cache.dtype)
         # print("### k_cache.shape: ", k_cache.shape)
         v_cache = padded_v.reshape(aligned_seqlen//self.block_sz, self.block_sz, self.num_kv_heads, self.head_size).transpose(1,2).contiguous()
-        sub_blk_size = self.block_sz
         if self.compressed_kvcache == 1:
             k_cache = quan_per_token(k_cache)
             v_cache = quan_per_token(v_cache)
         elif self.compressed_kvcache == 2:
-            sub_blk_size = 16
-            k_cache = quan_per_channel(k_cache, sub_blk_size)
+            k_cache = quan_per_channel(k_cache, self.sub_block_sz)
             v_cache = quan_per_token(v_cache)
         else:
             k_cache = k_cache.reshape(aligned_seqlen//self.block_sz, self.num_kv_heads, -1)
@@ -238,7 +238,7 @@ class page_atten_cm:
         kv_dtype = torch.uint8 if self.compressed_kvcache else torch.half
         # k: per token quantization for compressed_kvcache == 1, per channel quantization for compressed_kvcache == 2
         k_token_sz = (head_size + 4) if self.compressed_kvcache == 1 else (head_size)
-        k_block_sz = (self.block_sz + self.block_sz // sub_blk_size * 4) if self.compressed_kvcache == 2 else (self.block_sz)
+        k_block_sz = (self.block_sz + self.block_sz // self.sub_block_sz * 4) if self.compressed_kvcache == 2 else (self.block_sz)
         # v: always per token quantization for non-zero compressed_kvcache
         v_token_sz = (head_size + 4) if self.compressed_kvcache else (head_size)
         v_block_sz = self.block_sz
@@ -386,8 +386,8 @@ class page_atten_cm:
 
     @staticmethod
     @functools.cache
-    def create_instance(num_heads, num_kv_heads, head_size,block_sz, trunk_sz, compressed_kvcache, is_causal, sparse_block_sz):
-        return page_atten_cm(num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, is_causal, sparse_block_sz)
+    def create_instance(num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, sub_block_sz, is_causal, sparse_block_sz):
+        return page_atten_cm(num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, sub_block_sz, is_causal, sparse_block_sz)
 
 # sparse to dense mask
 def block_mask_to_attention_mask(block_mask: torch.Tensor, q_len: int, kv_len: int, sparse_block_size: int, trunk_sz: int) -> torch.Tensor:
@@ -517,7 +517,7 @@ def count_false_percentage(mask):
         false_percentage = 0.0
     return false_percentage
 
-def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, head_size = 80, block_sz=128, trunk_sz=512, compressed_kvcache=0, sparse_block_sz=128, sparse_ratio=0.5, check_acc = True):
+def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, head_size = 80, block_sz=128, trunk_sz=512, compressed_kvcache=0, sub_block_sz=16, sparse_block_sz=128, sparse_ratio=0.5, check_acc = True):
     cl.profiling(True)
     torch.manual_seed(0)
     torch.set_printoptions(linewidth=1024)
@@ -582,7 +582,7 @@ def test_page_attn_causal_batch1(seq_len, num_heads = 16, num_kv_heads = 16, hea
         density = 1.0 - percentage / 100.0
 
     is_causal = True  # PageAttention implictly means causal_mask
-    pa_cm = page_atten_cm.create_instance(num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, is_causal, sparse_block_sz)
+    pa_cm = page_atten_cm.create_instance(num_heads, num_kv_heads, head_size, block_sz, trunk_sz, compressed_kvcache, sub_block_sz, is_causal, sparse_block_sz)
     out = pa_cm(q, k, v, approx_simple_mask)
     latency = cl.finish()
 
@@ -746,7 +746,7 @@ def test_ov():
     # print(f'{block_indices=}')
 
     is_causal = True
-    pa_cm = page_atten_cm.create_instance(num_heads, num_kv_heads, head_size, kv_block_size, trunk_sz, compressed_kvcache, is_causal, sparse_block_sz)
+    pa_cm = page_atten_cm.create_instance(num_heads, num_kv_heads, head_size, kv_block_size, trunk_sz, compressed_kvcache, sub_block_sz, is_causal, sparse_block_sz)
 
     t_query = cl.tensor(query.detach().numpy())
     t_key_cache = cl.tensor(key_cache.detach().numpy())
@@ -826,8 +826,8 @@ if __name__ == "__main__":
                         print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                         print(f'[PA_BASE_ACC_TETS]: seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} kv_cache=={"U8" if compressed_kv else "F16"} sparse_block_sz=1')
                         print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
-                        test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kv, sparse_block_sz = 1, check_acc=True)
-                        test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kv, sparse_block_sz = 1, check_acc=True)
+                        test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kv, sub_block_sz=block_sz, sparse_block_sz = 1, check_acc=True)
+                        test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kv, sub_block_sz=block_sz, sparse_block_sz = 1, check_acc=True)
 
         for block_sz in range(128, 257, 32):
                 for seq_len in range(32768, 32810):
@@ -838,8 +838,8 @@ if __name__ == "__main__":
                             print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                             print(f'[PA_BASE_ACC_TETS]:seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} kv_cache={"U8" if compressed_kvcache else "F16"}')
                             print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
-                            test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 128, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sparse_block_sz=1, check_acc=True)
-                            test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 128, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sparse_block_sz=1, check_acc=True)
+                            test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 128, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sub_block_sz=block_sz, sparse_block_sz=1, check_acc=True)
+                            test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 128, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sub_block_sz=block_sz, sparse_block_sz=1, check_acc=True)
     #ACC test sparse X Attention:
     if 0:
         for sparse_block_sz in [128, 256, 64,]:
@@ -851,7 +851,7 @@ if __name__ == "__main__":
                                 print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                                 print(f'[XATTENION_ACC_TETS]:seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} kv_cache={"U8" if compressed_kvcache else "F16"} {sparse_block_sz=} {sparse_ratio=}')
                                 print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
-                                test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sparse_block_sz = sparse_block_sz, sparse_ratio=sparse_ratio, check_acc=True)
+                                test_page_attn_causal_batch1(seq_len, num_heads = 1, num_kv_heads = 1, head_size = 32, block_sz=block_sz, trunk_sz=blocks_per_trunk*block_sz, compressed_kvcache=compressed_kvcache, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=sparse_ratio, check_acc=True)
 
     # perf for sparse X attention.
     if 1:
@@ -860,12 +860,12 @@ if __name__ == "__main__":
         trunk_sz=seq_len
         sparse_block_sz = 128
 
-        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
-        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
-        test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=2, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=True)
+        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
+        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
+        test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=2, sub_block_sz=16, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=True)
 
-        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
-        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
+        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
+        # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
 
     # perf for sparse X attention, with QWen3 8K case
     if 0:
@@ -877,7 +877,7 @@ if __name__ == "__main__":
                 print("-----------------------------------------------------------------------------------------------------------------------------------------")
                 print(f'seq_len={seq_len} block_sz={block_sz} blocks_per_trunk={blocks_per_trunk} sparse_block_sz={sparse_block_sz}')
                 print("-----------------------------------------------------------------------------------------------------------------------------------------")
-                test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 8, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sparse_block_sz = sparse_block_sz, sparse_ratio=1.0-density, check_acc=False)
-                test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 8, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=1.0-density, check_acc=False)
+                test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 8, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=1.0-density, check_acc=False)
+                test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 8, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sub_block_sz=block_sz, sparse_block_sz = sparse_block_sz, sparse_ratio=1.0-density, check_acc=False)
 
     # test_ov()

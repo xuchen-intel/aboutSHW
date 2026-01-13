@@ -38,6 +38,7 @@ extern "C" _GENX_MAIN_ void cm_page_attention(
     constexpr int head_size = CMFLA_HEAD_SIZE;
     constexpr int num_kv_heads = CMFLA_NUM_KV_HEADS;
     constexpr int pa_block_sz = CMPA_BLOCK_SZ;
+    constexpr int sub_block_sz = CMPA_SUB_BLOCK_SZ;
     //# query [q_len, num_heads, S]
     //# k_cache [kv_len, num_heads, S]
     //# v_cache [kv_len, num_heads, S]
@@ -121,7 +122,7 @@ extern "C" _GENX_MAIN_ void cm_page_attention(
  #endif
 
 #if CMPA_KVCACHE_U8
-    uint k_offset = CMPA_KVCACHE_U8 == 1 ? hkv * (head_size + 4) * pa_block_sz : hkv * head_size * (pa_block_sz + pa_block_sz / sub_blk_size * 4);
+    uint k_offset = CMPA_KVCACHE_U8 == 1 ? hkv * (head_size + 4) * pa_block_sz : hkv * head_size * (pa_block_sz + pa_block_sz / sub_block_sz * 4);
     uint v_offset = hkv * (head_size + 4) * pa_block_sz;
     pa_lsc_u8<is_causal, num_heads, num_kv_heads, head_size, 0>(
                             slm_K,
