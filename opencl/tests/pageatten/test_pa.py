@@ -215,7 +215,7 @@ class page_atten_cm:
         elif self.compressed_kvcache == 2:
             sub_blk_size = 16
             k_cache = quan_per_channel(k_cache, sub_blk_size)
-            v_cache = quan_per_channel(v_cache, sub_blk_size)
+            v_cache = quan_per_token(v_cache)
         else:
             k_cache = k_cache.reshape(aligned_seqlen//self.block_sz, self.num_kv_heads, -1)
             v_cache = v_cache.reshape(aligned_seqlen//self.block_sz, self.num_kv_heads, -1)
@@ -236,9 +236,12 @@ class page_atten_cm:
         # print("### max_blks: ", max_blks)
 
         kv_dtype = torch.uint8 if self.compressed_kvcache else torch.half
-        #extra half zp and half scale per token. totally 4 bytes.
-        token_sz = (head_size + 4) if self.compressed_kvcache == 1 else (head_size)
-        block_sz = (self.block_sz + self.block_sz // sub_blk_size * 4) if self.compressed_kvcache == 2 else (self.block_sz)
+        # k: per token quantization for compressed_kvcache == 1, per channel quantization for compressed_kvcache == 2
+        k_token_sz = (head_size + 4) if self.compressed_kvcache == 1 else (head_size)
+        k_block_sz = (self.block_sz + self.block_sz // sub_blk_size * 4) if self.compressed_kvcache == 2 else (self.block_sz)
+        # v: always per token quantization for non-zero compressed_kvcache
+        v_token_sz = (head_size + 4) if self.compressed_kvcache else (head_size)
+        v_block_sz = self.block_sz
 
         if self.sparse_block_sz > 1:
             block_mask_list = []
@@ -296,12 +299,12 @@ class page_atten_cm:
                 block_indices =  torch.randperm(blk_num)
                 # block_indices =  torch.arange(blk_num)
                 # print(f'==============={block_indices=}')
-                sub_k = torch.zeros(blk_num, self.num_kv_heads, block_sz*token_sz).to(kv_dtype)
-                sub_v = torch.zeros(blk_num, self.num_kv_heads, block_sz*token_sz).to(kv_dtype)
+                sub_k = torch.zeros(blk_num, self.num_kv_heads, k_block_sz * k_token_sz).to(kv_dtype)
+                sub_v = torch.zeros(blk_num, self.num_kv_heads, v_block_sz * v_token_sz).to(kv_dtype)
                 # print("### sub_k.dtype: ", sub_k.dtype)
                 # print("### sub_k.shape: ", sub_k.shape)
-                # print("### block_sz: ", block_sz)
-                # print("### token_sz: ", token_sz)
+                # print("### k_block_sz: ", k_block_sz)
+                # print("### k_token_sz: ", k_token_sz)
                 for i in  range(len(block_indices)):
                     sub_k[block_indices[i],:] = k_cache[i,:]
                     sub_v[block_indices[i],:] = v_cache[i,:]
