@@ -121,7 +121,7 @@ extern "C" _GENX_MAIN_ void cm_page_attention(
  #endif
 
 #if CMPA_KVCACHE_U8
-    uint kv_offset = hkv*(head_size+4)*pa_block_sz;
+    uint kv_offset = CMPA_KVCACHE_U8 == 1 ? hkv * (head_size + 4) * pa_block_sz : hkv * head_size * (pa_block_sz + pa_block_sz / sub_blk_size * 4);
     pa_lsc_u8<is_causal, num_heads, num_kv_heads, head_size, 0>(
                             slm_K,
                             slm_V,

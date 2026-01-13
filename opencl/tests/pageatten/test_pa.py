@@ -52,6 +52,11 @@ def quan_per_channel(kv, sub_blk_size=16):
     num_sub_blks = blk_size // sub_blk_size
     kv_sub = kv.reshape(blk_num, kv_heads, num_sub_blks, sub_blk_size, head_size)
 
+    print("### kv.dtype: ", kv.dtype)
+    print("### kv.shape: ", kv.shape)
+    print("### kv_sub.dtype: ", kv_sub.dtype)
+    print("### kv_sub.shape: ", kv_sub.shape)
+
     # Quantize along the sub_blk_size dimension (dim=3)
     # This generates a scale/zp for every channel (head_size) per sub-block
     kv_max = kv_sub.amax(dim=3, keepdim=True)
@@ -232,8 +237,8 @@ class page_atten_cm:
 
         kv_dtype = torch.uint8 if self.compressed_kvcache else torch.half
         #extra half zp and half scale per token. totally 4 bytes.
-        token_sz = (head_size+4) if self.compressed_kvcache == 1 else (head_size)
-        block_sz = (self.block_sz+self.block_sz//sub_blk_size*4) if self.compressed_kvcache == 2 else (self.block_sz)
+        token_sz = (head_size + 4) if self.compressed_kvcache == 1 else (head_size)
+        block_sz = (self.block_sz + self.block_sz // sub_blk_size * 4) if self.compressed_kvcache == 2 else (self.block_sz)
 
         if self.sparse_block_sz > 1:
             block_mask_list = []
@@ -852,14 +857,14 @@ if __name__ == "__main__":
 
     # perf for sparse X attention.
     if 1:
-        seq_len = 32*1024
+        seq_len = 8*1024
         block_sz = 256
         trunk_sz=seq_len
         sparse_block_sz = 128
 
         # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
         # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
-        test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=2, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=False)
+        test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=2, sparse_block_sz = sparse_block_sz, sparse_ratio=0.5, check_acc=True)
 
         # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=0, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
         # test_page_attn_causal_batch1(seq_len, num_heads = 32, num_kv_heads = 4, head_size = 128, block_sz=block_sz, trunk_sz=trunk_sz,  compressed_kvcache=1, sparse_block_sz = sparse_block_sz, sparse_ratio=0.8, check_acc=False)
