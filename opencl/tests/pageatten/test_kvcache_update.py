@@ -13,6 +13,12 @@ from clops.utils import Colors
 # "CM_FE_DIR": "c:\\ceciliapeng\\ComputeSDK_Windows_internal_2025_WW41\\compiler\bin"
 # os.environ["CM_FE_DIR"] = "c:\\ceciliapeng\\ComputeSDK_Windows_internal_2025_WW41\\compiler\bin"
 
+def round_to_even(tensor):
+    rounded = torch.floor(tensor + 0.5)
+    adjustment = (rounded % 2 != 0) & (torch.abs(tensor - rounded) == 0.5000)
+    adjustment = adjustment | (rounded > 255)
+    return rounded - adjustment.to(rounded.dtype)
+
 class pa_kvcache_update_cm:
     def __init__(self, num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress):
         self.num_kv_heads = num_kv_heads
@@ -194,12 +200,11 @@ class ContinuousBatchKVCacheGenerator:
             key_cache = self.__get_kv_cache_half(self.k_head_size, self.key_data, skip_input)
             value_cache = self.__get_kv_cache_half(self.v_head_size, self.value_data, skip_input)
         elif self.enable_kvcache_compress == 1:
-            key_cache = self.__get_kv_cache_u8(self.k_head_size, self.key_data, skip_input)
-            value_cache = self.__get_kv_cache_u8(self.v_head_size, self.value_data, skip_input)
+            key_cache = self.__get_kv_cache_u8_per_token(self.k_head_size, self.key_data, skip_input)
+            value_cache = self.__get_kv_cache_u8_per_token(self.v_head_size, self.value_data, skip_input)
         else:
-            # need to revise to apply per channel kv cache quantization later
-            key_cache = self.__get_kv_cache_u8(self.k_head_size, self.key_data, skip_input)
-            value_cache = self.__get_kv_cache_u8(self.v_head_size, self.value_data, skip_input)
+            key_cache = self.__get_kv_cache_u8_per_channel(self.k_head_size, self.key_data, skip_input)
+            value_cache = self.__get_kv_cache_u8_per_channel(self.v_head_size, self.value_data, skip_input)
         return key_cache, value_cache
             
     # private methods
@@ -219,7 +224,7 @@ class ContinuousBatchKVCacheGenerator:
                         cache_data[block_pos, token_idx, :] = input_data[i][input_token_offset, :]
         return cache_data.reshape(self.num_blocks, self.block_size, self.num_kv_heads, _head_size).transpose(1, 2).contiguous()
     
-    def __get_kv_cache_u8(self, _head_size, input_data, skip_input):
+    def __get_kv_cache_u8_per_token(self, _head_size, input_data, skip_input):
         cache_data = torch.zeros(self.num_blocks, self.num_kv_heads, self.block_size * (_head_size + 4)).to(torch.uint8)
         for i in range(self.batch_size_in_sequences):
             process_len = self.past_lens[i] if skip_input else self.past_lens[i] + self.num_tokens[i]
@@ -248,6 +253,28 @@ class ContinuousBatchKVCacheGenerator:
         # if skip_input == False:
         #     print("cache_data =", cache_data)
         return cache_data
+
+    def __get_kv_cache_u8_per_channel(self, _head_size, input_data, skip_input):
+        assert self.block_size % self.sub_block_size == 0
+        num_sub_blocks = self.block_size // self.sub_block_size
+        extra_bytes = 4 * num_sub_blocks * _head_size
+        cache_data = torch.zeros(self.num_blocks, self.num_kv_heads, self.block_size * _head_size + extra_bytes).to(torch.uint8)
+        for i in range(self.batch_size_in_sequences):
+            process_len = self.past_lens[i] if skip_input else self.past_lens[i] + self.num_tokens[i]
+            if process_len > 0:
+                blocks_num = (process_len + self.block_size - 1) // self.block_size
+                for block_idx in range(blocks_num):
+                    last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
+                    if last_token_idx == 0: last_token_idx = self.block_size
+                    for h in range(self.num_kv_heads):
+                        token_start_idx = block_idx * self.block_size
+                        token_end_idx = token_start_idx + last_token_idx
+                        input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
+                        input_block_per_head_q = self.__quant_block_per_channel(input_block_per_head, _head_size, self.block_size, self.sub_block_size).reshape(-1)
+
+                        block_pos = self.block_indices[self.block_indices_begins[i] + block_idx]
+                        cache_data[block_pos, h, :] = input_block_per_head_q
+        return cache_data
     
     # quantize a kv block in fashion of per_token
     # input_block_per_head [1, 1, block_size, head_size]
@@ -264,6 +291,17 @@ class ContinuousBatchKVCacheGenerator:
         # print("dq_scale: ", dq_scale)
         # print("kz_zp: ", kv_zp)
         return torch.concat((kv_u8, dq_scale, kv_zp), dim=-1)
+
+    def __quant_block_per_channel(self, input_block_per_head, _head_size, block_size, sub_block_size):
+        blk_num, kv_heads, blksz, *_ = input_block_per_head.shape
+        if blksz < block_size:
+            last_token = input_block_per_head[:, :, blksz - 1:blksz, :]
+            pad = last_token.repeat(1, 1, block_size - blksz, 1)
+            input_block_per_head = torch.cat((input_block_per_head, pad), dim=2)
+        num_sub_blocks = block_size // sub_block_size
+        input_block_per_head = input_block_per_head.reshape(blk_num, kv_heads, num_sub_blocks, sub_block_size, _head_size)
+        kv_u8, dq_scale, kv_zp = self.quant_per_channel(input_block_per_head)
+        return torch.concat((kv_u8, dq_scale, kv_zp), dim=-1)
     
     # quantize in fashion of per_token
     # kv_cache_blocks [num_blocks, num_kv_heads, block_size, head_size]
@@ -277,15 +315,16 @@ class ContinuousBatchKVCacheGenerator:
         U8_MAX = torch.tensor(255.0, dtype=torch.float)
         U8_MIN = torch.tensor(0.0, dtype=torch.float)
         U8_RANGE = (U8_MAX - U8_MIN).to(dtype=torch.float)
+        zero_mask = qrange == 0
+        if zero_mask.any():
+            qrange = torch.where(zero_mask, torch.ones_like(qrange), qrange)
         kv_scale = ((U8_RANGE)/qrange).to(dtype=torch.float)
         kv_scale_div = (1.0/kv_scale).to(dtype=torch.float)
         kv_zp = ((0.0-kv_min)*kv_scale+U8_MIN).to(dtype=torch.float)
-
-        def round_to_even(tensor):
-            rounded = torch.floor(tensor + 0.5)
-            adjustment = (rounded % 2 != 0) & (torch.abs(tensor - rounded) == 0.5000)
-            adjustment = adjustment | (rounded > 255)  # also handle overflow
-            return rounded - adjustment.to(rounded.dtype)
+        if zero_mask.any():
+            kv_scale = torch.where(zero_mask, torch.ones_like(kv_scale), kv_scale)
+            kv_scale_div = torch.where(zero_mask, torch.ones_like(kv_scale_div), kv_scale_div)
+            kv_zp = torch.where(zero_mask, -kv_min, kv_zp)
 
         # kv_u8 = torch.round((kv_cache_blocks*kv_scale+kv_zp)).to(dtype=torch.uint8).reshape(blk_num,kv_heads,-1)
         kv_u8 = round_to_even((kv_cache_blocks*kv_scale+kv_zp)).to(dtype=torch.uint8).reshape(blk_num,kv_heads,-1)
@@ -309,6 +348,39 @@ class ContinuousBatchKVCacheGenerator:
 
         # print("dq_scale: ", dq_scale)
         # print("kz_zp: ", kv_zp)
+        return kv_u8, dq_scale, kv_zp
+
+    # quantize in fashion of per_channel
+    # kv_cache_blocks [num_blocks, num_kv_heads, num_sub_blocks, sub_block_size, head_size]
+    @staticmethod
+    def quant_per_channel(kv_cache_blocks):
+        blk_num, kv_heads, num_sub_blocks, sub_block_size, head_size = kv_cache_blocks.shape
+        kv_max = kv_cache_blocks.amax(dim=3, keepdim=True).to(dtype=torch.float)
+        kv_min = kv_cache_blocks.amin(dim=3, keepdim=True).to(dtype=torch.float)
+        qrange = (kv_max - kv_min).to(dtype=torch.float)
+
+        U8_MAX = torch.tensor(255.0, dtype=torch.float)
+        U8_MIN = torch.tensor(0.0, dtype=torch.float)
+        U8_RANGE = (U8_MAX - U8_MIN).to(dtype=torch.float)
+        zero_mask = qrange == 0
+        if zero_mask.any():
+            qrange = torch.where(zero_mask, torch.ones_like(qrange), qrange)
+        kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
+        kv_scale_div = (1.0 / kv_scale).to(dtype=torch.float)
+        kv_zp = ((0.0 - kv_min) * kv_scale + U8_MIN).to(dtype=torch.float)
+        if zero_mask.any():
+            kv_scale = torch.where(zero_mask, torch.ones_like(kv_scale), kv_scale)
+            kv_scale_div = torch.where(zero_mask, torch.ones_like(kv_scale_div), kv_scale_div)
+            kv_zp = torch.where(zero_mask, -kv_min, kv_zp)
+
+        kv_u8 = round_to_even(kv_cache_blocks * kv_scale + kv_zp).to(dtype=torch.uint8)
+        kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
+
+        dq_scale = kv_scale_div.to(dtype=torch.half).view(dtype=torch.uint8)
+        dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
+        kv_zp = kv_zp.to(dtype=torch.half).view(dtype=torch.uint8)
+        kv_zp = kv_zp.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
+
         return kv_u8, dq_scale, kv_zp
     
     @staticmethod
