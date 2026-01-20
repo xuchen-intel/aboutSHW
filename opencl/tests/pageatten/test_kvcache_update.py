@@ -14,11 +14,12 @@ from clops.utils import Colors
 # os.environ["CM_FE_DIR"] = "c:\\ceciliapeng\\ComputeSDK_Windows_internal_2025_WW41\\compiler\bin"
 
 class pa_kvcache_update_cm:
-    def __init__(self, num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress):
+    def __init__(self, num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress):
         self.num_kv_heads = num_kv_heads
         self.k_head_size = k_head_size
         self.v_head_size = v_head_size
         self.block_size = block_size
+        self.sub_block_size = sub_block_size
         self.wg_size = 16
 
         self.enable_kvcache_compress = enable_kvcache_compress
@@ -27,7 +28,7 @@ class pa_kvcache_update_cm:
         cwd = os.path.dirname(os.path.realpath(__file__))
         print(f"compiling {cwd} {num_kv_heads=} {k_head_size=} {v_head_size=} {enable_kvcache_compress=}...")
 
-        if enable_kvcache_compress:
+        if enable_kvcache_compress == 1:
             adjusted_k_head_size = k_head_size + 4
             adjusted_v_head_size = v_head_size + 4
         else:
@@ -100,8 +101,11 @@ class pa_kvcache_update_cm:
             ns = cl.finish()
             for i, time_opt in enumerate(ns):
                 print(f'(pa_kv_cache_update)TPUT_{i}:[{key.numel()=}]+[{value.numel()=}] {time_opt*1e-3:,.0f} us')
-                if self.enable_kvcache_compress:
+                if self.enable_kvcache_compress == 1:
                     total_bytes = batch_size_in_tokens * self.num_kv_heads * (3 * self.k_head_size + 3 * self.v_head_size + 8)
+                elif self.enable_kvcache_compress == 2:
+                    total_bytes = batch_size_in_tokens * self.num_kv_heads * (3 * self.k_head_size + 3 * self.v_head_size) \
+                                + (batch_size_in_tokens / self.sub_block_size * 4) * self.num_kv_heads * (self.k_head_size + self.v_head_size)
                 else:
                     total_bytes = batch_size_in_tokens * self.num_kv_heads * (4 * self.k_head_size + 4 * self.v_head_size)
                 tput = total_bytes / time_opt
@@ -111,11 +115,11 @@ class pa_kvcache_update_cm:
                     
     @staticmethod
     @functools.cache
-    def create_instance(num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress):
-        return pa_kvcache_update_cm(num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress)
+    def create_instance(num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress):
+        return pa_kvcache_update_cm(num_kv_heads, k_head_size, v_head_size, block_size,sub_block_size, enable_kvcache_compress)
     
 class ContinuousBatchKVCacheGenerator:
-    def __init__(self, num_tokens:list, past_lens:list, num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress):
+    def __init__(self, num_tokens:list, past_lens:list, num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress):
         self.batch_size_in_sequences = len(num_tokens)
         assert(self.batch_size_in_sequences == len(past_lens))
 
@@ -126,6 +130,7 @@ class ContinuousBatchKVCacheGenerator:
         self.k_head_size = k_head_size
         self.v_head_size = v_head_size
         self.block_size = block_size
+        self.sub_block_size = sub_block_size
     
         # prepare page attention inputs
         # key_data/value_data are lists of torch.Tensor with shape [subsequence_length, num_kv_heads, kv_head_size] for each sequence
@@ -185,10 +190,14 @@ class ContinuousBatchKVCacheGenerator:
     
     # generate key_cache / value_cache
     def get_kv_cache(self, skip_input = True):
-        if self.enable_kvcache_compress is False:
+        if self.enable_kvcache_compress == 0:
             key_cache = self.__get_kv_cache_half(self.k_head_size, self.key_data, skip_input)
             value_cache = self.__get_kv_cache_half(self.v_head_size, self.value_data, skip_input)
+        elif self.enable_kvcache_compress == 1:
+            key_cache = self.__get_kv_cache_u8(self.k_head_size, self.key_data, skip_input)
+            value_cache = self.__get_kv_cache_u8(self.v_head_size, self.value_data, skip_input)
         else:
+            # need to revise to apply per channel kv cache quantization later
             key_cache = self.__get_kv_cache_u8(self.k_head_size, self.key_data, skip_input)
             value_cache = self.__get_kv_cache_u8(self.v_head_size, self.value_data, skip_input)
         return key_cache, value_cache
@@ -321,8 +330,8 @@ class ContinuousBatchKVCacheGenerator:
                 #     block_head_data_f16[i,:] = (block_head_data_f16[i,:] - block_head_zp[i,0]) * block_head_scale[i,0]
                 # print('dequant_data_f16: shape = ', block_head_data_f16.shape, '\n', block_head_data_f16)
 
-def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=16, enable_kvcache_compress=True, check_perf=False):
-    cb_kvcache_gnr = ContinuousBatchKVCacheGenerator(num_tokens, past_lens, num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress)
+def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=16, enable_kvcache_compress=1, check_perf=False):
+    cb_kvcache_gnr = ContinuousBatchKVCacheGenerator(num_tokens, past_lens, num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress)
     subsequence_begins, block_indices, block_indices_begins = cb_kvcache_gnr.get_block_table()
 
     key, value = cb_kvcache_gnr.get_current_kv()
@@ -336,7 +345,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
 
     # print(f'{Colors.BLUE} ============ {key_cache_ref.shape=} {key_cache_ref.is_contiguous()=} {Colors.END}')
     # print(f'{Colors.BLUE} ============ {value_cache_ref.shape=} {value_cache_ref.is_contiguous()=} {Colors.END}')
-    # if enable_kvcache_compress:
+    # if enable_kvcache_compress == 1:
     #     print_kv_cache_u8(key_cache_ref, block_size, k_head_size, "key_cache_ref")
     #     print_kv_cache_u8(value_cache_ref, block_size, v_head_size, "value_cache_ref")
     # else:
@@ -344,11 +353,11 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     #     print(f'{Colors.BLUE} {value_cache_ref=} {Colors.END}')
    
     # opt
-    pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress)
+    pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress)
     n_repeats = 20 if check_perf else 1
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
-    if enable_kvcache_compress:
+    if enable_kvcache_compress == 1:
         out_key_cache=torch.tensor(out_key_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * (k_head_size + 4))
         out_value_cache=torch.tensor(out_value_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * (v_head_size + 4))
         key_cache_ref = key_cache_ref.reshape(-1, num_kv_heads, block_size * (k_head_size + 4))
@@ -358,6 +367,8 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
 
         compare(value_cache_ref[:,:,:block_size * v_head_size].to(dtype=torch.int).detach().numpy(), out_value_cache[:,:,:block_size * v_head_size].to(dtype=torch.int).detach().numpy(),1)
         compare(value_cache_ref[:,:,block_size * v_head_size :].view(dtype=torch.half).detach().numpy(), out_value_cache[:,:,block_size * v_head_size : ].view(dtype=torch.half).detach().numpy(),1e-3)
+    elif enable_kvcache_compress == 2:
+        pass
     else:
         compare(key_cache_ref.detach().numpy(), out_key_cache)
         compare(value_cache_ref.detach().numpy(), out_value_cache)
@@ -399,7 +410,7 @@ def reference_kv_cache_update(kv_cache_data, cur_kv_data, past_lens, subsequence
 #             np_data = np.frombuffer(data, dtype=dtype).copy()
 #             return torch.from_numpy(np_data)
 
-#     compressed_kvcache = True
+#     compressed_kvcache = 1
 #     kv_block_size = 256
 #     num_kv_heads, k_head_size, v_head_size = 8, 128, 128
 #     base = f"c:\\ceciliapeng\\{dump_dir}_{pa_node_name}\\"
@@ -429,13 +440,13 @@ def reference_kv_cache_update(kv_cache_data, cur_kv_data, past_lens, subsequence
 #     print(f'{Colors.BLUE} ============ {block_indices.shape=} {block_indices.is_contiguous()=} {Colors.END}')
     
 #     # opt
-#     pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, kv_block_size, compressed_kvcache)
+#     pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, kv_block_size, kv_block_size, compressed_kvcache)
 #     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, 1)
 
 #     key_cache_ref = reference_kv_cache_update(key_cache.clone(), key.clone(), past_lens, subsequence_begins, block_indices, block_indices_begins)
 #     value_cache_ref = reference_kv_cache_update(value_cache.clone(), value.clone(), past_lens, subsequence_begins, block_indices, block_indices_begins)
 
-#     if compressed_kvcache:
+#     if compressed_kvcache == 1:
 #         out_key_cache=torch.tensor(out_key_cache).reshape(-1, num_kv_heads, kv_block_size * (k_head_size + 4)).to(dtype=torch.uint8)
 #         out_value_cache=torch.tensor(out_value_cache).reshape(-1, num_kv_heads, kv_block_size * (v_head_size + 4)).to(dtype=torch.uint8)
 
@@ -469,7 +480,7 @@ if __name__ == "__main__":
     #     import sys
     #     sys.exit(0)
     
-    # for compress_kvcache in [False, True]:
+    # for compress_kvcache in [0, 1]:
     #     # test_pa_kv_cache_update([1024, 16, 17], [16, 0, 1], sub_block_size=block_size)
     #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
     #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=96, v_head_size=96, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
@@ -486,4 +497,4 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
-    test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=True, check_perf=True)
+    test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
