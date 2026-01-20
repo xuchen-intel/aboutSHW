@@ -321,7 +321,7 @@ class ContinuousBatchKVCacheGenerator:
                 #     block_head_data_f16[i,:] = (block_head_data_f16[i,:] - block_head_zp[i,0]) * block_head_scale[i,0]
                 # print('dequant_data_f16: shape = ', block_head_data_f16.shape, '\n', block_head_data_f16)
 
-def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_head_size=64, v_head_size=64, block_size=16, enable_kvcache_compress=True, check_perf=False):   
+def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=16, enable_kvcache_compress=True, check_perf=False):
     cb_kvcache_gnr = ContinuousBatchKVCacheGenerator(num_tokens, past_lens, num_kv_heads, k_head_size, v_head_size, block_size, enable_kvcache_compress)
     subsequence_begins, block_indices, block_indices_begins = cb_kvcache_gnr.get_block_table()
 
@@ -470,20 +470,20 @@ if __name__ == "__main__":
     #     sys.exit(0)
     
     # for compress_kvcache in [False, True]:
-    #     # test_pa_kv_cache_update([1024, 16, 17], [16, 0, 1])
-    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, enable_kvcache_compress=compress_kvcache, check_perf=True)
-    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=96, v_head_size=96, block_size=256, enable_kvcache_compress=compress_kvcache, check_perf=True)
-    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=48, v_head_size=48, block_size=256, enable_kvcache_compress=compress_kvcache, check_perf=True)
-    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=48, v_head_size=96, block_size=256, enable_kvcache_compress=compress_kvcache, check_perf=True)
-    #     # test_pa_kv_cache_update([64*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, check_perf=True)
-    #     # test_pa_kv_cache_update([128*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, check_perf=True)
-    #     test_pa_kv_cache_update([32*1024], [4*1024], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, check_perf=True)
-    #     # test_pa_kv_cache_update([128*1024], [1*1024], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, check_perf=True)
+    #     # test_pa_kv_cache_update([1024, 16, 17], [16, 0, 1], sub_block_size=block_size)
+    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
+    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=96, v_head_size=96, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
+    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=48, v_head_size=48, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
+    #     test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=48, v_head_size=96, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=True)
+    #     # test_pa_kv_cache_update([64*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, check_perf=True)
+    #     # test_pa_kv_cache_update([128*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, check_perf=True)
+    #     test_pa_kv_cache_update([32*1024], [4*1024], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, check_perf=True)
+    #     # test_pa_kv_cache_update([128*1024], [1*1024], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, check_perf=True)
 
-    #     test_pa_kv_cache_update([16], [0], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=16, enable_kvcache_compress=compress_kvcache, check_perf=False)
+    #     test_pa_kv_cache_update([16], [0], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=16, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
         
-    #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, check_perf=True)
-    #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, enable_kvcache_compress=compress_kvcache, check_perf=False)
-    #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, check_perf=False)
-    #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, check_perf=True)
-    test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, enable_kvcache_compress=True, check_perf=True)
+    #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, check_perf=True)
+    #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
+    #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
+    #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
+    test_pa_kv_cache_update([32*1024], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=True, check_perf=True)
