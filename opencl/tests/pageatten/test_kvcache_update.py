@@ -37,9 +37,15 @@ class pa_kvcache_update_cm:
         if enable_kvcache_compress == 1:
             adjusted_k_head_size = k_head_size + 4
             adjusted_v_head_size = v_head_size + 4
+            adjusted_block_size = block_size
+        elif enable_kvcache_compress == 2:
+            adjusted_k_head_size = k_head_size
+            adjusted_v_head_size = v_head_size
+            adjusted_block_size = block_size + (block_size // sub_block_size) * 4
         else:
             adjusted_k_head_size = k_head_size
             adjusted_v_head_size = v_head_size
+            adjusted_block_size = block_size
 
         jit_option = '-abortonspill -noschedule '
         self.kernels = cl.kernels(src,
@@ -50,6 +56,7 @@ class pa_kvcache_update_cm:
                       f" -DADJUSTED_K_HEAD_SIZE={adjusted_k_head_size}"
                       f" -DADJUSTED_V_HEAD_SIZE={adjusted_v_head_size}"
                       f" -DPAGED_ATTENTION_BLOCK_SIZE={self.block_size}"
+                      f" -DADJUSTED_PAGED_ATTENTION_BLOCK_SIZE={adjusted_block_size}"
                       f" -DWG_SIZE={self.wg_size}"
                       f" -DKV_CACHE_COMPRESSION_PER_TOKEN={int(enable_kvcache_compress)}"
                       f" -mdump_asm -g2")
