@@ -429,18 +429,23 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     n_repeats = 20 if check_perf else 1
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
-    if enable_kvcache_compress == 1:
-        out_key_cache=torch.tensor(out_key_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * (k_head_size + 4))
-        out_value_cache=torch.tensor(out_value_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * (v_head_size + 4))
-        key_cache_ref = key_cache_ref.reshape(-1, num_kv_heads, block_size * (k_head_size + 4))
-        value_cache_ref = value_cache_ref.reshape(-1, num_kv_heads, block_size * (v_head_size + 4))
+    if enable_kvcache_compress:
+        if enable_kvcache_compress == 1:
+            key_extra_bytes = block_size * 4
+            val_extra_bytes = block_size * 4
+        else:
+            num_sub_blocks = block_size // sub_block_size
+            key_extra_bytes = 4 * num_sub_blocks * k_head_size
+            val_extra_bytes = 4 * num_sub_blocks * v_head_size
+        out_key_cache=torch.tensor(out_key_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * k_head_size + key_extra_bytes)
+        out_value_cache=torch.tensor(out_value_cache).to(dtype=torch.uint8).reshape(-1, num_kv_heads, block_size * v_head_size + val_extra_bytes)
+        key_cache_ref = key_cache_ref.reshape(-1, num_kv_heads, block_size * k_head_size + key_extra_bytes)
+        value_cache_ref = value_cache_ref.reshape(-1, num_kv_heads, block_size * v_head_size + val_extra_bytes)
         compare(key_cache_ref[:,:,:block_size * k_head_size].to(dtype=torch.int).detach().numpy(), out_key_cache[:,:,:block_size * k_head_size].to(dtype=torch.int).detach().numpy(),1)
         compare(key_cache_ref[:,:,block_size * k_head_size :].view(dtype=torch.half).detach().numpy(), out_key_cache[:,:,block_size * k_head_size : ].view(dtype=torch.half).detach().numpy(),1e-3)
 
         compare(value_cache_ref[:,:,:block_size * v_head_size].to(dtype=torch.int).detach().numpy(), out_value_cache[:,:,:block_size * v_head_size].to(dtype=torch.int).detach().numpy(),1)
         compare(value_cache_ref[:,:,block_size * v_head_size :].view(dtype=torch.half).detach().numpy(), out_value_cache[:,:,block_size * v_head_size : ].view(dtype=torch.half).detach().numpy(),1e-3)
-    elif enable_kvcache_compress == 2:
-        pass
     else:
         compare(key_cache_ref.detach().numpy(), out_key_cache)
         compare(value_cache_ref.detach().numpy(), out_value_cache)
