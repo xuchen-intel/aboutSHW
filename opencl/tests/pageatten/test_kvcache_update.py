@@ -26,7 +26,7 @@ class pa_kvcache_update_cm:
         self.v_head_size = v_head_size
         self.block_size = block_size
         self.sub_block_size = sub_block_size
-        self.wg_size = 16
+        self.wg_size = (block_size // sub_block_size) if enable_kvcache_compress == 2 else 16
 
         self.enable_kvcache_compress = enable_kvcache_compress
 
@@ -56,7 +56,8 @@ class pa_kvcache_update_cm:
                       f" -DADJUSTED_K_HEAD_SIZE={adjusted_k_head_size}"
                       f" -DADJUSTED_V_HEAD_SIZE={adjusted_v_head_size}"
                       f" -DPAGED_ATTENTION_BLOCK_SIZE={self.block_size}"
-                      f" -DADJUSTED_PAGED_ATTENTION_BLOCK_SIZE={adjusted_block_size}"
+                      f" -DADJUSTED_BLOCK_SIZE={adjusted_block_size}"
+                      f" -DSUB_BLOCK_SIZE={self.sub_block_size}"
                       f" -DWG_SIZE={self.wg_size}"
                       f" -DKV_CACHE_COMPRESSION_PER_TOKEN={int(enable_kvcache_compress)}"
                       f" -mdump_asm -g2")
@@ -87,7 +88,8 @@ class pa_kvcache_update_cm:
         else:
             kv_cache_type = torch.float16
 
-        wg_count = (batch_size_in_tokens + self.wg_size - 1) // self.wg_size
+        wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
+        wg_count = (batch_size_in_tokens + wg_seq_len - 1) // wg_seq_len
         GWS = [1, self.num_kv_heads, int(wg_count * self.wg_size)]
         LWS = [1, 1, self.wg_size]
 

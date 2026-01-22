@@ -157,7 +157,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint block_offset = block_indices_begins[subsequence_idx] + current_block_idx;
 
     {
-        uint block_k_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_K_HEAD_SIZE * PAGED_ATTENTION_BLOCK_SIZE;
+        uint block_k_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_K_HEAD_SIZE * ADJUSTED_BLOCK_SIZE;
         uint key_out_offset = block_k_base_offset + token_start_pos * K_HEAD_SIZE;
         uint key_in_offset = token_idx * key_pitch + head_idx * K_HEAD_SIZE + key_offset;
 
@@ -171,7 +171,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
         #endif
     }
     {
-        uint block_v_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_V_HEAD_SIZE * PAGED_ATTENTION_BLOCK_SIZE;
+        uint block_v_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_V_HEAD_SIZE * ADJUSTED_BLOCK_SIZE;
         uint value_out_offset = block_v_base_offset + token_start_pos * V_HEAD_SIZE;
         uint value_in_offset = token_idx * value_pitch + head_idx * V_HEAD_SIZE + value_offset;
 
