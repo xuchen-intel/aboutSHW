@@ -112,6 +112,35 @@ CM_INLINE void process_no_quantization(const half* in, uchar* out, uint in_offse
 }
 #endif
 
+template <int HEADS_NUM, int HEAD_SIZE, int BLOCK_SIZE, int ADJ_HEAD_SIZE, int ADJ_BLOCK_SIZE>
+CM_INLINE void process_kv_cache_update(
+    const half* data,
+#if KV_CACHE_COMPRESSION_PER_TOKEN
+    uint8_t* cache,
+#else
+    half* cache,
+#endif
+    const int32_t* block_indices,
+    uint token_idx,
+    uint head_idx,
+    uint pitch,
+    uint offset,
+    uint block_offset,
+    uint token_start_pos) {
+    uint in_offset = token_idx * pitch + head_idx * HEAD_SIZE + offset;
+    uint block_k_base_offset = (block_indices[block_offset] * HEADS_NUM + head_idx) * ADJ_HEAD_SIZE * ADJ_BLOCK_SIZE;
+    uint data_offset = block_k_base_offset + token_start_pos * HEAD_SIZE;
+    uint scale_offset = block_k_base_offset + HEAD_SIZE * BLOCK_SIZE + token_start_pos * sizeof(half);
+
+    #if KV_CACHE_COMPRESSION_PER_TOKEN == 1
+        process_quantization_per_token<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset, scale_offset);
+    #elif KV_CACHE_COMPRESSION_PER_TOKEN == 2
+        process_quantization_per_channel<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset, scale_offset);
+    #else
+        process_no_quantization<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset);
+    #endif
+}
+
 extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const half* key [[type("svmptr_t")]],
     const half* value [[type("svmptr_t")]],
@@ -169,32 +198,8 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint token_start_pos = (past_len + token_idx - subsequence_begin_idx) % PAGED_ATTENTION_BLOCK_SIZE;
     const uint block_offset = block_indices_begins[subsequence_idx] + current_block_idx;
 
-    {
-        uint key_in_offset = token_idx * key_pitch + head_idx * K_HEAD_SIZE + key_offset;
-        uint block_k_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_K_HEAD_SIZE * ADJUSTED_BLOCK_SIZE;
-        uint key_data_offset = block_k_base_offset + token_start_pos * K_HEAD_SIZE;
-        uint key_scale_offset = block_k_base_offset + K_HEAD_SIZE * PAGED_ATTENTION_BLOCK_SIZE + token_start_pos * sizeof(half);
-
-        #if KV_CACHE_COMPRESSION_PER_TOKEN == 1
-            process_quantization_per_token<K_HEAD_SIZE>(key, (uchar*)key_cache, key_in_offset, key_data_offset, key_scale_offset);
-        #elif KV_CACHE_COMPRESSION_PER_TOKEN == 2
-            process_quantization_per_channel<K_HEAD_SIZE>(key, (uchar*)key_cache, key_in_offset, key_data_offset, key_scale_offset);
-        #else
-            process_no_quantization<K_HEAD_SIZE>(key, (uchar*)key_cache, key_in_offset, key_data_offset);
-        #endif
-    }
-    {
-        uint value_in_offset = token_idx * value_pitch + head_idx * V_HEAD_SIZE + value_offset;
-        uint block_v_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_V_HEAD_SIZE * ADJUSTED_BLOCK_SIZE;
-        uint value_data_offset = block_v_base_offset + token_start_pos * V_HEAD_SIZE;
-        uint value_scale_offset = block_v_base_offset + V_HEAD_SIZE * PAGED_ATTENTION_BLOCK_SIZE + token_start_pos * sizeof(half);
-
-        #if KV_CACHE_COMPRESSION_PER_TOKEN == 1
-            process_quantization_per_token<V_HEAD_SIZE>(value, (uchar*)value_cache, value_in_offset, value_data_offset, value_scale_offset);
-        #elif KV_CACHE_COMPRESSION_PER_TOKEN == 2
-            process_quantization_per_channel<V_HEAD_SIZE>(value, (uchar*)value_cache, value_in_offset, value_data_offset, value_scale_offset);
-        #else
-            process_no_quantization<V_HEAD_SIZE>(value, (uchar*)value_cache, value_in_offset, value_data_offset);
-        #endif
-    }
+    process_kv_cache_update<KV_HEADS_NUM, K_HEAD_SIZE, PAGED_ATTENTION_BLOCK_SIZE, ADJUSTED_K_HEAD_SIZE, ADJUSTED_BLOCK_SIZE>(
+        key, key_cache, block_indices, token_idx, head_idx, key_pitch, key_offset, block_offset, token_start_pos);
+    process_kv_cache_update<KV_HEADS_NUM, V_HEAD_SIZE, PAGED_ATTENTION_BLOCK_SIZE, ADJUSTED_V_HEAD_SIZE, ADJUSTED_BLOCK_SIZE>(
+        value, value_cache, block_indices, token_idx, head_idx, value_pitch, value_offset, block_offset, token_start_pos);
 }
