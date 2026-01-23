@@ -55,7 +55,7 @@ class pa_kvcache_update_cm:
                       f" -DV_HEAD_SIZE={v_head_size}"
                       f" -DADJUSTED_K_HEAD_SIZE={adjusted_k_head_size}"
                       f" -DADJUSTED_V_HEAD_SIZE={adjusted_v_head_size}"
-                      f" -DPAGED_ATTENTION_BLOCK_SIZE={self.block_size}"
+                      f" -DBLOCK_SIZE={self.block_size}"
                       f" -DADJUSTED_BLOCK_SIZE={adjusted_block_size}"
                       f" -DSUB_BLOCK_SIZE={self.sub_block_size}"
                       f" -DWG_SIZE={self.wg_size}"
