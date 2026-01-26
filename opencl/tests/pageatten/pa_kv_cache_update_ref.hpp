@@ -95,17 +95,17 @@ CM_INLINE void process_quantization_per_token(const half* in, uchar* out, uint i
 
 #elif KV_CACHE_COMPRESSION_PER_TOKEN == 2
 template <int HEAD_SIZE>
-CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint in_offset, uint data_offset, uint scale_offset, uint pitch) {
+CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint in_offset, uint data_offset, uint scale_offset, uint pitch, uint cur_sub_block_size) {
     matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> in_data;
     #pragma unroll
-    for (int i = 0; i < SUB_BLOCK_SIZE; i++) {
+    for (int i = 0; i < cur_sub_block_size; i++) {
         load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
     }
 
     vector<half, HEAD_SIZE> max_vals = in_data.row(0);
     vector<half, HEAD_SIZE> min_vals = in_data.row(0);
     #pragma unroll
-    for (int i = 1; i < SUB_BLOCK_SIZE; i++) {
+    for (int i = 1; i < cur_sub_block_size; i++) {
         max_vals = cm_max<half>(max_vals, in_data.row(i));
         min_vals = cm_min<half>(min_vals, in_data.row(i));
     }
@@ -117,7 +117,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     scale_vals.merge(1.0f, mask);
     vector<half, HEAD_SIZE> zp_vals = cm_mul<half>((0.0 - min_vals), scale_vals);
     #pragma unroll
-    for (int i = 0; i < SUB_BLOCK_SIZE; i++) {
+    for (int i = 0; i < cur_sub_block_size; i++) {
         vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(in_data.row(i), scale_vals) + zp_vals;
         vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
         store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + i * HEAD_SIZE), 0, data_u8);
@@ -153,7 +153,8 @@ CM_INLINE void process_kv_cache_update(
     uint pitch,
     uint offset,
     uint block_offset,
-    uint token_start_pos) {
+    uint token_start_pos,
+    uint cur_sub_block_size) {
     uint in_offset = token_idx * pitch + head_idx * HEAD_SIZE + offset;
     uint block_k_base_offset = (block_indices[block_offset] * KV_HEADS_NUM + head_idx) * ADJUSTED_BLOCK_SIZE * ADJUSTED_HEAD_SIZE;
     uint data_offset = block_k_base_offset + token_start_pos * HEAD_SIZE;
@@ -163,7 +164,7 @@ CM_INLINE void process_kv_cache_update(
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 1
     process_quantization_per_token<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset, scale_offset);
 #elif KV_CACHE_COMPRESSION_PER_TOKEN == 2
-    process_quantization_per_channel<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset, scale_offset, pitch);
+    process_quantization_per_channel<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset, scale_offset, pitch, cur_sub_block_size);
 #else
     process_no_quantization<HEAD_SIZE>(data, (uchar*)cache, in_offset, data_offset);
 #endif
@@ -208,6 +209,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto wg_id = cm_group_id(2);
 
     const uint token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
+    const uint cur_sub_block_size = subsequence_begins[batch_size_in_sequences] - token_idx < SUB_BLOCK_SIZE ? subsequence_begins[batch_size_in_sequences] - token_idx : SUB_BLOCK_SIZE;
 
     // token_idx -> subsequence_idx
     if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
@@ -226,6 +228,6 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint token_start_pos = (past_len + token_idx - subsequence_begin_idx) % BLOCK_SIZE;
     const uint block_offset = block_indices_begins[subsequence_idx] + current_block_idx;
 
-    process_kv_cache_update<K_HEAD_SIZE, ADJUSTED_K_HEAD_SIZE>(key, key_cache, block_indices, token_idx, head_idx, key_pitch, key_offset, block_offset, token_start_pos);
-    process_kv_cache_update<V_HEAD_SIZE, ADJUSTED_V_HEAD_SIZE>(value, value_cache, block_indices, token_idx, head_idx, value_pitch, value_offset, block_offset, token_start_pos);
+    process_kv_cache_update<K_HEAD_SIZE, ADJUSTED_K_HEAD_SIZE>(key, key_cache, block_indices, token_idx, head_idx, key_pitch, key_offset, block_offset, token_start_pos, cur_sub_block_size);
+    process_kv_cache_update<V_HEAD_SIZE, ADJUSTED_V_HEAD_SIZE>(value, value_cache, block_indices, token_idx, head_idx, value_pitch, value_offset, block_offset, token_start_pos, cur_sub_block_size);
 }
