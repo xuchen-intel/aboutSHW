@@ -209,16 +209,26 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto wg_id = cm_group_id(2);
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
-    int32_t global_subsequence_begins[batch_size_in_sequences];
+
     uint token_idx = global_token_idx;
+    uint global_subsequence_begins[batch_size_in_sequences];
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
-    for (uint i = 0; i < batch_size_in_sequences; i++) {
+    global_subsequence_begins[0] = 0;
+    for (uint i = 1; i <= batch_size_in_sequences; i++) {
         uint past_tail = past_lens[i] % SUB_BLOCK_SIZE;
-        global_tokens += past_tail;
-        token_idx -= past_tail;
+        global_subsequence_begins[i] = past_tail + subsequence_begins[i] - subsequence_begins[i - 1];
+    }
+    for (uint i = batch_size_in_sequences; i >=0; i--) {
+        if (token_idx > global_subsequence_begins[i]) {
+            for (int k = 0; k <= i; k++) {
+                uint past_tail = past_lens[k] % SUB_BLOCK_SIZE;
+                token_idx -= past_tail;
+            }
+            break;
+        }
     }
 #endif
-    const uint cur_sub_block_size = global_tokens - global_token_idx < SUB_BLOCK_SIZE ? global_tokens - token_idx : SUB_BLOCK_SIZE;
+    const uint cur_sub_block_size = global_subsequence_begins[batch_size_in_sequences] - token_idx < SUB_BLOCK_SIZE ? global_subsequence_begins[batch_size_in_sequences] - token_idx : SUB_BLOCK_SIZE;
 
     // token_idx -> subsequence_idx
     if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
