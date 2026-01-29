@@ -208,8 +208,17 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    const uint token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
-    const uint cur_sub_block_size = subsequence_begins[batch_size_in_sequences] - token_idx < SUB_BLOCK_SIZE ? subsequence_begins[batch_size_in_sequences] - token_idx : SUB_BLOCK_SIZE;
+    const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
+    int32_t global_subsequence_begins[batch_size_in_sequences];
+    uint token_idx = global_token_idx;
+#if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    for (uint i = 0; i < batch_size_in_sequences; i++) {
+        uint past_tail = past_lens[i] % SUB_BLOCK_SIZE;
+        global_tokens += past_tail;
+        token_idx -= past_tail;
+    }
+#endif
+    const uint cur_sub_block_size = global_tokens - global_token_idx < SUB_BLOCK_SIZE ? global_tokens - token_idx : SUB_BLOCK_SIZE;
 
     // token_idx -> subsequence_idx
     if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
@@ -227,6 +236,8 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint current_block_idx = (past_len + token_idx - subsequence_begin_idx) / BLOCK_SIZE;
     const uint token_start_pos = (past_len + token_idx - subsequence_begin_idx) % BLOCK_SIZE;
     const uint block_offset = block_indices_begins[subsequence_idx] + current_block_idx;
+    if (past_len % SUB_BLOCK_SIZE && token_idx >= subsequence_begin_idx && token_idx < subsequence_begin_idx + SUB_BLOCK_SIZE) {
+    }
 
     process_kv_cache_update<K_HEAD_SIZE, ADJUSTED_K_HEAD_SIZE>(key, key_cache, block_indices, token_idx, head_idx, key_pitch, key_offset, block_offset, token_start_pos, cur_sub_block_size);
     process_kv_cache_update<V_HEAD_SIZE, ADJUSTED_V_HEAD_SIZE>(value, value_cache, block_indices, token_idx, head_idx, value_pitch, value_offset, block_offset, token_start_pos, cur_sub_block_size);

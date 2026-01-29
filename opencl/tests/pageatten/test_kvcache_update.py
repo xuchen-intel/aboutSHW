@@ -89,8 +89,14 @@ class pa_kvcache_update_cm:
         else:
             kv_cache_type = torch.float16
 
+        # In quantization per channel, the tails of past tokens need to be included for updating scale and zp
+        process_tokes = batch_size_in_tokens
+        if self.enable_kvcache_compress == 2:
+            for i in range(batch_size_in_sequences):
+                process_tokes += past_lens[i] % self.sub_block_size
+
         wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
-        wg_count = (batch_size_in_tokens + wg_seq_len - 1) // wg_seq_len
+        wg_count = (process_tokes + wg_seq_len - 1) // wg_seq_len
         GWS = [1, self.num_kv_heads, int(wg_count * self.wg_size)]
         LWS = [1, 1, self.wg_size]
 
@@ -589,4 +595,5 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
-    test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
