@@ -89,8 +89,16 @@ class pa_kvcache_update_cm:
         else:
             kv_cache_type = torch.float16
 
+        # In quantization per channel, the tails of past tokens need to be included for updating scale and zp
+        process_tokens = batch_size_in_tokens
+        if self.enable_kvcache_compress == 2:
+            process_tokens = 0
+            for i in range(batch_size_in_sequences):
+                past_tail = past_lens[i] % self.sub_block_size
+                cur_tokens = subsequence_begins[i + 1] - subsequence_begins[i]
+                process_tokens += (past_tail + cur_tokens + self.sub_block_size - 1) // self.sub_block_size * self.sub_block_size
         wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
-        wg_count = (batch_size_in_tokens + wg_seq_len - 1) // wg_seq_len
+        wg_count = (process_tokens + wg_seq_len - 1) // wg_seq_len
         GWS = [1, self.num_kv_heads, int(wg_count * self.wg_size)]
         LWS = [1, 1, self.wg_size]
 
@@ -281,7 +289,6 @@ class ContinuousBatchKVCacheGenerator:
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
                         input_block_per_head_q = self.__quant_block_per_channel(input_block_per_head, _head_size, self.block_size, self.sub_block_size).reshape(-1)
-
                         block_pos = self.block_indices[self.block_indices_begins[i] + block_idx]
                         cache_data[block_pos, h, :] = input_block_per_head_q
         return cache_data
@@ -372,28 +379,31 @@ class ContinuousBatchKVCacheGenerator:
         mask = torch.ones_like(kv_cache_blocks, dtype=torch.bool)
         if tail_token:
             mask[:, :, tail_sub_block:tail_sub_block+1, tail_token:, :] = False
-        kv_max = torch.where(mask, kv_cache_blocks, float('-inf')).amax(dim=3, keepdim=True).to(dtype=torch.float)
-        kv_min = torch.where(mask, kv_cache_blocks, float('inf')).amin(dim=3, keepdim=True).to(dtype=torch.float)
-
-        qrange = (kv_max - kv_min).to(dtype=torch.float)
+        kv_max = torch.where(mask, kv_cache_blocks, torch.tensor(float("-inf"), dtype=torch.float16)).amax(dim=3, keepdim=True)
+        kv_min = torch.where(mask, kv_cache_blocks, torch.tensor(float("inf"), dtype=torch.float16)).amin(dim=3, keepdim=True)
+        qrange = kv_max - kv_min
 
         U8_MAX = torch.tensor(255.0, dtype=torch.float)
         U8_MIN = torch.tensor(0.0, dtype=torch.float)
-        U8_RANGE = (U8_MAX - U8_MIN).to(dtype=torch.float)
+        U8_RANGE = U8_MAX - U8_MIN
 
-        kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
+        # kv_scale needs to be fp32 to align with cm kernel, where accuracy loss caused by reciprocal approximation division needs to be avoid
+        kv_scale = U8_RANGE / qrange.to(dtype=torch.float)
         zero_mask = qrange == 0
+
         if zero_mask.any():
             kv_scale = torch.where(zero_mask, torch.ones_like(kv_scale), kv_scale)
-        kv_scale_div = (1.0 / kv_scale).to(dtype=torch.float)
-        kv_zp = ((0.0 - kv_min) * kv_scale + U8_MIN).to(dtype=torch.float)
 
-        kv_u8 = round_to_even(kv_cache_blocks * kv_scale + kv_zp).to(dtype=torch.uint8)
+        kv_scale_div = (1.0 / kv_scale).to(dtype=torch.half)
+        kv_zp = ((0.0 - kv_min) * kv_scale + U8_MIN).to(dtype=torch.half)
+
+        kv_u8 = round_to_even((kv_cache_blocks * kv_scale).to(dtype=torch.half) + kv_zp).to(dtype=torch.uint8)
         kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
 
-        dq_scale = kv_scale_div.to(dtype=torch.half).view(dtype=torch.uint8)
+        dq_scale = kv_scale_div.view(dtype=torch.uint8)
+
         dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
-        kv_zp = kv_zp.to(dtype=torch.half).view(dtype=torch.uint8)
+        kv_zp = kv_zp.view(dtype=torch.uint8)
         kv_zp = kv_zp.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
 
         return kv_u8, dq_scale, kv_zp
@@ -441,7 +451,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
    
     # opt
     pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress)
-    n_repeats = 20 if check_perf else 1
+    n_repeats = 1 if check_perf else 1
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     if enable_kvcache_compress:
@@ -562,6 +572,7 @@ def reference_kv_cache_update(kv_cache_data, cur_kv_data, past_lens, subsequence
 if __name__ == "__main__":
     torch.manual_seed(3)
     torch.set_printoptions(linewidth=1024)
+    # torch.set_printoptions(precision=15)
     
     cl.profiling(True)
 
@@ -589,4 +600,17 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
-    test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    pairs = [
+        ([32*1024], [0]),
+        ([32*1024], [16*1024]),
+        ([1],       [0]),
+        ([1],       [1]),
+        ([1, 1],    [1, 1]),
+        ([43, 1],   [23, 1]),
+        ([51, 55],  [10, 8]),
+        ([37, 91, 1], [21, 3, 1]),
+    ]
+    for num_tokens, past_lens in pairs:
+        for sub_block_size in [16]:
+            for enalbe_kvcache_compress in [0, 1, 2]:
+                test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=enalbe_kvcache_compress, check_perf=True)
