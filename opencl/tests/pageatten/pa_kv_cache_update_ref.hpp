@@ -264,12 +264,11 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     cm_assert(batch_size_in_sequences <= MAX_SEQS);
-    uint global_subsequence_begins[MAX_SEQS];
     uint past_tail_lens[MAX_SEQS];
     uint pad_lens[MAX_SEQS];
     for (uint i = 0; i < batch_size_in_sequences; i++) {
         past_tail_lens[i] = past_lens[i] % SUB_BLOCK_SIZE;
-        pad_lens[i] = SUB_BLOCK_SIZE - (past_tail_lens[i] + subsequence_begins[i + 1] - subsequence_begins[i]) % SUB_BLOCK_SIZE;
+        pad_lens[i] = (SUB_BLOCK_SIZE - (past_tail_lens[i] + subsequence_begins[i + 1] - subsequence_begins[i]) % SUB_BLOCK_SIZE) % SUB_BLOCK_SIZE;
     }
     for (uint i = 0; i < batch_size_in_sequences; i++) {
         if (token_idx >= subsequence_begins[i] + past_tail_lens[i]) {
