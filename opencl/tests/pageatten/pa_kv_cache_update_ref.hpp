@@ -44,6 +44,21 @@ CM_INLINE void load_kvcache(vector_ref<half, HEAD_SIZE> kv_data, const half* kv_
     }
 }
 
+template <int HEAD_SIZE>
+CM_INLINE void load_kvcache(vector_ref<uchar, HEAD_SIZE> kv_data, const uchar* kv_ptr [[type("svmptr_t")]], uint offset) {
+    if constexpr (HEAD_SIZE == 16 || HEAD_SIZE == 32 || HEAD_SIZE == 64 || HEAD_SIZE == 128) {
+        kv_data.format<int>() = cm_ptr_load<int, HEAD_SIZE / 4>((int*)kv_ptr, offset);
+    } else if constexpr (HEAD_SIZE == 96) {
+        kv_data.select<64, 1>(0).format<int>() = cm_ptr_load<int, 16>((int*)kv_ptr, offset);
+        kv_data.select<32, 1>(64).format<int>() = cm_ptr_load<int, 8>((int*)kv_ptr, offset + 16 * sizeof(int));
+    } else {
+        #pragma unroll
+        for(int i = 0; i < HEAD_SIZE / 16; i++) {
+            kv_data.select<16, 1>(16*i).format<int>() = cm_ptr_load<int, 4>((int*)kv_ptr, offset + i * 4 * sizeof(int));
+        }
+    }
+}
+
 template <typename T, int HEAD_SIZE>
 CM_INLINE void store_kvcache(const svmptr_t kv_cache [[type("svmptr_t")]], uint offset, vector_ref<T, HEAD_SIZE> kv_data) {
     if constexpr(std::is_same<T, half>::value) {
@@ -114,9 +129,9 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         min_vals = cm_min<half>(min_vals, in_data.row(i));
     }
 
+    matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> update_data;
     if (dequant_size) {
         matrix<uchar, SUB_BLOCK_SIZE, HEAD_SIZE> update_data_u8;
-        matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> update_data;
         vector<half, HEAD_SIZE> scale_stale;
         vector<half, HEAD_SIZE> zp_stale;
         uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
@@ -124,8 +139,8 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         #pragma unroll
         for (int i = 0; i < dequant_size; i++) {
             load_kvcache<HEAD_SIZE>(update_data_u8.row(i), out, update_offset + i * HEAD_SIZE);
-            load_kvcache<HEAD_SIZE>((half *)scale_stale, out, scale_offset * (int)sizeof(half));
-            load_kvcache<HEAD_SIZE>((half *)zp_stale, out, zp_offset * (int)sizeof(half));
+            load_kvcache<HEAD_SIZE>(scale_stale, (half*)out, scale_offset * (int)sizeof(half));
+            load_kvcache<HEAD_SIZE>(zp_stale, (half*)out, zp_offset * (int)sizeof(half));
             update_data.row(i) = cm_mul<half>(update_data_u8.row(i) - zp_stale, scale_stale);
             max_vals = cm_max<half>(max_vals, update_data.row(i));
             min_vals = cm_min<half>(min_vals, update_data.row(i));
