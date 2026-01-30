@@ -24,6 +24,10 @@
 
 constexpr uint wg_size = WG_SIZE;
 
+#if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+constexpr uint MAX_SEQS = 256;
+#endif
+
 template <int HEAD_SIZE>
 CM_INLINE void load_kvcache(vector_ref<half, HEAD_SIZE> kv_data, const half* kv_ptr [[type("svmptr_t")]], uint offset) {
     if constexpr (HEAD_SIZE == 16 || HEAD_SIZE == 32 || HEAD_SIZE == 64 || HEAD_SIZE == 128) {
@@ -211,11 +215,28 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
     uint token_idx = global_token_idx;
-    uint global_subsequence_begins[batch_size_in_sequences];
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    cm_assert(batch_size_in_sequences <= MAX_SEQS);
+    uint global_subsequence_begins[MAX_SEQS];
+    uint past_tail_lens[MAX_SEQS];
+    uint pad_lens[MAX_SEQS];
+    for (uint i = 0; i < batch_size_in_sequences; i++) {
+        past_tail_lens[i] = past_lens[i] % SUB_BLOCK_SIZE;
+        pad_lens[i] = SUB_BLOCK_SIZE - (past_tail_lens[i] + subsequence_begins[i + 1] - subsequence_begins[i]) % SUB_BLOCK_SIZE;
+    }
+    for (uint i = 0; i < batch_size_in_sequences; i++) {
+        if (token_idx >= subsequence_begins[i] + past_tail_lens[i]) {
+            token_idx -= past_tail_lens[i];
+        }
+        if (token_idx >= subsequence_begins[i + 1] + pad_lens[i]) {
+            token_idx -= pad_lens[i];
+        }
+    }
+    printf("###### global_token_idx: %d, token_idx: %d\n", global_token_idx, token_idx);
+return;
     global_subsequence_begins[0] = 0;
     for (uint i = 1; i <= batch_size_in_sequences; i++) {
-        uint past_tail = past_lens[k] % SUB_BLOCK_SIZE;
+        uint past_tail = past_lens[i] % SUB_BLOCK_SIZE;
         uint cur_tokens = subsequence_begins[i] - subsequence_begins[i - 1];
         global_subsequence_begins[i] = global_subsequence_begins[i - 1] + past_tail + cur_tokens;
     }

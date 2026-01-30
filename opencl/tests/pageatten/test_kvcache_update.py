@@ -90,16 +90,15 @@ class pa_kvcache_update_cm:
             kv_cache_type = torch.float16
 
         # In quantization per channel, the tails of past tokens need to be included for updating scale and zp
-        process_tokes = batch_size_in_tokens
+        process_tokens = batch_size_in_tokens
         if self.enable_kvcache_compress == 2:
-            process_tokes = 0
+            process_tokens = 0
             for i in range(batch_size_in_sequences):
                 past_tail = past_lens[i] % self.sub_block_size
                 cur_tokens = subsequence_begins[i + 1] - subsequence_begins[i]
-                process_tokes += (past_tail + cur_tokens + self.sub_block_size - 1) // self.sub_block_size * self.sub_block_size
-
+                process_tokens += (past_tail + cur_tokens + self.sub_block_size - 1) // self.sub_block_size * self.sub_block_size
         wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
-        wg_count = (process_tokes + wg_seq_len - 1) // wg_seq_len
+        wg_count = (process_tokens + wg_seq_len - 1) // wg_seq_len
         GWS = [1, self.num_kv_heads, int(wg_count * self.wg_size)]
         LWS = [1, 1, self.wg_size]
 
@@ -450,7 +449,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
    
     # opt
     pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress)
-    n_repeats = 20 if check_perf else 1
+    n_repeats = 1 if check_perf else 1
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     if enable_kvcache_compress:
@@ -599,4 +598,5 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
-    test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    test_pa_kv_cache_update([51, 55], [10, 8], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
