@@ -215,6 +215,8 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
     uint token_idx = global_token_idx;
+    uint cur_dequant_size = 0;
+    uint cur_sub_block_size = SUB_BLOCK_SIZE;
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     cm_assert(batch_size_in_sequences <= MAX_SEQS);
     uint global_subsequence_begins[MAX_SEQS];
@@ -232,28 +234,32 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
             token_idx -= pad_lens[i];
         }
     }
-    printf("###### global_token_idx: %d, token_idx: %d\n", global_token_idx, token_idx);
-return;
-    global_subsequence_begins[0] = 0;
-    for (uint i = 1; i <= batch_size_in_sequences; i++) {
-        uint past_tail = past_lens[i] % SUB_BLOCK_SIZE;
-        uint cur_tokens = subsequence_begins[i] - subsequence_begins[i - 1];
-        global_subsequence_begins[i] = global_subsequence_begins[i - 1] + past_tail + cur_tokens;
-    }
-    for (uint i = batch_size_in_sequences; i >=0; i--) {
-        if (token_idx > global_subsequence_begins[i]) {
-            for (int k = 0; k <= i; k++) {
-                uint past_tail = past_lens[k] % SUB_BLOCK_SIZE;
-                token_idx -= past_tail;
-            }
+#endif
+
+#if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    // token_idx -> subsequence_idx
+    if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
+    for (int i = batch_size_in_sequences - 1; i >= 0 ; i--) {
+        // last sub-block
+        if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[i + 1]) {
+            cur_sub_block_size = subsequence_begins[i + 1] - token_idx;
+            break;
+        }
+        // first sub-block
+        else if (token_idx == subsequence_begins[i]) {
+            cur_dequant_size = past_tail_lens[i];
+            break;
+        //middle sub-block
+        } else if (token_idx > subsequence_begins[i]) {
             break;
         }
     }
-#endif
-    const uint cur_sub_block_size = global_subsequence_begins[batch_size_in_sequences] - token_idx < SUB_BLOCK_SIZE ? global_subsequence_begins[batch_size_in_sequences] - token_idx : SUB_BLOCK_SIZE;
 
-    // token_idx -> subsequence_idx
-    if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
+    printf("global_token_idx: %d, token_idx: %d, cur_dequant_size: %d, cur_sub_block_size: %d\n", global_token_idx, token_idx, cur_dequant_size, cur_sub_block_size);
+
+    return;
+#endif
+
     uint subsequence_idx = 0;
     for (uint i = 0; i < batch_size_in_sequences; i++) {
         if (token_idx >= subsequence_begins[i] && token_idx < subsequence_begins[i + 1]) {
