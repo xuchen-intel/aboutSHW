@@ -215,8 +215,9 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     global_subsequence_begins[0] = 0;
     for (uint i = 1; i <= batch_size_in_sequences; i++) {
-        uint past_tail = past_lens[i] % SUB_BLOCK_SIZE;
-        global_subsequence_begins[i] = past_tail + subsequence_begins[i] - subsequence_begins[i - 1];
+        uint past_tail = past_lens[k] % SUB_BLOCK_SIZE;
+        uint cur_tokens = subsequence_begins[i] - subsequence_begins[i - 1];
+        global_subsequence_begins[i] = global_subsequence_begins[i - 1] + past_tail + cur_tokens;
     }
     for (uint i = batch_size_in_sequences; i >=0; i--) {
         if (token_idx > global_subsequence_begins[i]) {

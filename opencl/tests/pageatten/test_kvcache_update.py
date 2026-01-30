@@ -92,8 +92,11 @@ class pa_kvcache_update_cm:
         # In quantization per channel, the tails of past tokens need to be included for updating scale and zp
         process_tokes = batch_size_in_tokens
         if self.enable_kvcache_compress == 2:
+            process_tokes = 0
             for i in range(batch_size_in_sequences):
-                process_tokes += past_lens[i] % self.sub_block_size
+                past_tail = past_lens[i] % self.sub_block_size
+                cur_tokens = subsequence_begins[i + 1] - subsequence_begins[i]
+                process_tokes += (past_tail + cur_tokens + self.sub_block_size - 1) // self.sub_block_size * self.sub_block_size
 
         wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
         wg_count = (process_tokes + wg_seq_len - 1) // wg_seq_len
