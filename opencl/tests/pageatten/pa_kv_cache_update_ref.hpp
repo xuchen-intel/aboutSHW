@@ -139,8 +139,8 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         #pragma unroll
         for (int i = 0; i < dequant_size; i++) {
             load_kvcache<HEAD_SIZE>(update_data_u8.row(i), out, update_offset + i * HEAD_SIZE);
-            load_kvcache<HEAD_SIZE>(scale_stale, (half*)out, scale_offset * (int)sizeof(half));
-            load_kvcache<HEAD_SIZE>(zp_stale, (half*)out, zp_offset * (int)sizeof(half));
+            load_kvcache<HEAD_SIZE>(scale_stale, (half*)out, scale_offset);
+            load_kvcache<HEAD_SIZE>(zp_stale, (half*)out, zp_offset);
             update_data.row(i) = cm_mul<half>(update_data_u8.row(i) - zp_stale, scale_stale);
             max_vals = cm_max<half>(max_vals, update_data.row(i));
             min_vals = cm_min<half>(min_vals, update_data.row(i));
