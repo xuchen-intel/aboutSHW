@@ -118,7 +118,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> in_data;
     #pragma unroll
     for (int i = dequant_size; i < cur_sub_block_size; i++) {
-        load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
+        load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + (i - dequant_size) * pitch) * (int)sizeof(half));
     }
 
     vector<half, HEAD_SIZE> max_vals = in_data.row(dequant_size);
