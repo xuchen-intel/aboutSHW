@@ -167,7 +167,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     for (int i = dequant_size; i < cur_sub_block_size; i++) {
         vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(in_data.row(i), scale_vals) + zp_vals;
         vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
-        store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + i * HEAD_SIZE), 0, data_u8);
+        store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + (i - dequant_size) * HEAD_SIZE), 0, data_u8);
     }
 
     vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
