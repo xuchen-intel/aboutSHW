@@ -130,8 +130,9 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     }
 
     matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> update_data;
+    matrix<uchar, SUB_BLOCK_SIZE, HEAD_SIZE> update_data_u8;
     if (dequant_size) {
-        matrix<uchar, SUB_BLOCK_SIZE, HEAD_SIZE> update_data_u8;
+        // matrix<uchar, SUB_BLOCK_SIZE, HEAD_SIZE> update_data_u8;
         vector<half, HEAD_SIZE> scale_stale;
         vector<half, HEAD_SIZE> zp_stale;
         uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
@@ -146,6 +147,30 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
             min_vals = cm_min<half>(min_vals, update_data.row(i));
         }
     }
+
+    // {
+    //     printf("### zp values: \n");
+    //     uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
+    //     for (uint i = 0; i < HEAD_SIZE; i++) {
+    //         printf("%f ", (float)((half *)out)[i+zp_offset]);
+    //     }
+    //     return;
+    // }
+    {
+        printf("### zp values:\n");
+        uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
+        half *zp_ptr = (half *)(out + zp_offset);
+        for (uint i = 0; i < HEAD_SIZE; i++) {
+            printf("%f ", (float)zp_ptr[i]);
+        }
+        printf("\n");
+        return;
+    }
+
+
+    // uint update_offset = data_offset - dequant_size * HEAD_SIZE;
+    // store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + 0 * HEAD_SIZE), 0, update_data_u8[0]);
+    // return;
 
     vector<half, HEAD_SIZE> qrange = max_vals - min_vals;
     vector<ushort, HEAD_SIZE> mask = (qrange == (half)0.0);
@@ -163,6 +188,11 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
             store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
         }
     }
+    // printf("### past values: ");
+    // uint update_offset = data_offset - dequant_size * HEAD_SIZE;
+    // for (uint i = 0; i < HEAD_SIZE; i++) {
+    //     printf("%d ", (int)out[i+update_offset]);
+    // }
     #pragma unroll
     for (int i = 0; i < cur_sub_block_size; i++) {
         vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(in_data.row(i), scale_vals) + zp_vals;
