@@ -453,8 +453,8 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
-    # print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    # print("##### key_cache_ref: ", key_cache_ref[0, 0, :128*3])
+    print("##### key_cache_ref.shape: ", key_cache_ref.shape)
+    print("##### key_cache_ref: ", key_cache_ref[0, 0, :128*3])
     # print("##### key_cache.shape: ", key_cache.shape)
     # print("##### key_cache: ", key_cache[0, 0, :128*3])
     print("##### out_key_cache.shape: ", out_key_cache.shape)

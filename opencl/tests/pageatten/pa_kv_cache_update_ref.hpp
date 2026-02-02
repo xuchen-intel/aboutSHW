@@ -117,14 +117,14 @@ template <int HEAD_SIZE>
 CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint in_offset, uint data_offset, uint scale_offset, uint pitch, uint dequant_size, uint cur_sub_block_size) {
     matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> in_data;
     #pragma unroll
-    for (int i = dequant_size; i < cur_sub_block_size; i++) {
-        load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + (i - dequant_size) * pitch) * (int)sizeof(half));
+    for (int i = 0; i < cur_sub_block_size; i++) {
+        load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
     }
 
-    vector<half, HEAD_SIZE> max_vals = in_data.row(dequant_size);
-    vector<half, HEAD_SIZE> min_vals = in_data.row(dequant_size);
+    vector<half, HEAD_SIZE> max_vals = in_data.row(0);
+    vector<half, HEAD_SIZE> min_vals = in_data.row(0);
     #pragma unroll
-    for (int i = dequant_size + 1; i < cur_sub_block_size; i++) {
+    for (int i = 1; i < cur_sub_block_size; i++) {
         max_vals = cm_max<half>(max_vals, in_data.row(i));
         min_vals = cm_min<half>(min_vals, in_data.row(i));
     }
@@ -164,10 +164,10 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         }
     }
     #pragma unroll
-    for (int i = dequant_size; i < cur_sub_block_size; i++) {
+    for (int i = 0; i < cur_sub_block_size; i++) {
         vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(in_data.row(i), scale_vals) + zp_vals;
         vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
-        store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + (i - dequant_size) * HEAD_SIZE), 0, data_u8);
+        store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + i * HEAD_SIZE), 0, data_u8);
     }
 
     vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
