@@ -284,18 +284,23 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
 if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    uint finish = 0;
     for (int i = batch_size_in_sequences - 1; i >= 0 ; i--) {
         // last sub-block
         if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[i + 1]) {
             cur_sub_block_size = subsequence_begins[i + 1] - token_idx;
-            break;
+            finish = 1;
         }
         // first sub-block
-        else if (token_idx == subsequence_begins[i]) {
+        if (token_idx == subsequence_begins[i]) {
             dequant_size = past_tail_lens[i];
-            break;
+            finish = 1;
+        }
         //middle sub-block
-        } else if (token_idx > subsequence_begins[i]) {
+        if (token_idx > subsequence_begins[i]) {
+            finish = 1;
+        }
+        if (finish) {
             break;
         }
     }
