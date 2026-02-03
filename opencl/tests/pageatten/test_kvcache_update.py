@@ -274,11 +274,11 @@ class ContinuousBatchKVCacheGenerator:
 
     def __get_kv_cache_u8_per_channel(self, _head_size, input_data, skip_input):
         torch.set_printoptions(threshold=10_000_000, linewidth=128)
-        # input = input_data[0]
-        # print("###### input.shape: ", input.shape)
-        # re = input.reshape(input.shape[0], 8, -1)
-        # print("###### re.shape: ", re.shape)
-        # print("###### re: ", re[:, 0, :])
+        input = input_data[0]
+        print("###### input.shape: ", input.shape)
+        re = input.reshape(input.shape[0], 8, -1)
+        print("###### re.shape: ", re.shape)
+        print("###### re: ", re[:, 0, :])
         assert self.block_size % self.sub_block_size == 0
         num_sub_blocks = self.block_size // self.sub_block_size
         extra_bytes = 4 * num_sub_blocks * _head_size
@@ -649,3 +649,5 @@ if __name__ == "__main__":
     # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([51, 55], [10, 8], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    # test_pa_kv_cache_update([1], [1], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=8, sub_block_size=4, enable_kvcache_compress=2, check_perf=True)
+    # test_pa_kv_cache_update([31], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)

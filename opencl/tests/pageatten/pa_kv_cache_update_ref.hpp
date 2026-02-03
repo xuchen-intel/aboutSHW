@@ -176,6 +176,18 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         }
     }
 
+    // printf("### max_vals_data:\n");
+    // for (uint c = 0; c < HEAD_SIZE; c++) {
+    //     printf("%f ", (float)max_vals[c]);
+    // }
+    // printf("\n");
+    // printf("### min_vals_data:\n");
+    // for (uint c = 0; c < HEAD_SIZE; c++) {
+    //     printf("%f ", (float)min_vals[c]);
+    // }
+    // printf("\n");
+
+
     // {
     //     printf("### zp values:\n");
     //     uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
@@ -216,9 +228,9 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
             vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
             store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
             // {
-            //     printf("### update_data:\n");
+            //     printf("### dequantized update_data:\n");
             //     for (uint c = 0; c < HEAD_SIZE; c++) {
-            //         printf("%f ", (float)update_data.row(i)[c]);
+            //         printf("%f ", (float)dequant_data[c]);
             //     }
             //     printf("\n");
             // }
