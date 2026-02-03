@@ -123,6 +123,14 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
 
     vector<half, HEAD_SIZE> max_vals = in_data.row(0);
     vector<half, HEAD_SIZE> min_vals = in_data.row(0);
+    // {
+    //     printf("### in_data:\n");
+    //     for (uint c = 0; c < HEAD_SIZE; c++) {
+    //         printf("%f ", (float)in_data.row(0)[c]);
+    //         if (c % 16 == 15) printf("\n");
+    //     }
+    //     printf("\n");
+    // }
     #pragma unroll
     for (int i = 1; i < cur_sub_block_size; i++) {
         max_vals = cm_max<half>(max_vals, in_data.row(i));
@@ -144,8 +152,24 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
             if (i < dequant_size) {
                 load_kvcache<HEAD_SIZE>(update_data_u8.row(i), out, update_offset + i * HEAD_SIZE);
                 update_data.row(i) = cm_mul<half>(update_data_u8.row(i) - zp_stale, scale_stale);
+                // {
+                //     printf("### update_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         printf("%f ", (float)update_data.row(i)[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
                 max_vals = cm_max<half>(max_vals, update_data.row(i));
                 min_vals = cm_min<half>(min_vals, update_data.row(i));
+                // {
+                //     printf("### max_vals:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         printf("%f ", (float)max_vals[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
             }
         }
     }
@@ -163,7 +187,16 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         for (int i = 0; i < SUB_BLOCK_SIZE; i++) {
             if (i < dequant_size) {
                 vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(update_data.row(i), scale_vals) + zp_vals;
+                dequant_data = cm_min<half>(cm_max<half>(dequant_data, (half)0.0), (half)255.0);
                 vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
+                // {
+                //     printf("### dequant_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         printf("%f ", (float)dequant_data[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
                 store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
             }
         }
@@ -172,6 +205,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     #pragma unroll
     for (int i = 0; i < cur_sub_block_size; i++) {
         vector<half, HEAD_SIZE> dequant_data = cm_mul<half>(in_data.row(i), scale_vals) + zp_vals;
+        dequant_data = cm_min<half>(cm_max<half>(dequant_data, (half)0.0), (half)255.0);
         vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
         store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + i * HEAD_SIZE), 0, data_u8);
     }
@@ -261,6 +295,8 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
 
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
+
+    // if (head_idx) return;
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 

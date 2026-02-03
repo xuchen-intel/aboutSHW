@@ -494,12 +494,11 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
     print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    print("##### key_cache_ref: ", key_cache_ref[0, 0, :128*3])
+    print("##### key_cache_ref: ", key_cache_ref[0, 0, :55])
     print("##### key_cache.shape: ", key_cache.shape)
-    print("##### key_cache: ", key_cache[0, 0, :128*3])
+    print("##### key_cache: ", key_cache[0, 0, :55])
     print("##### out_key_cache.shape: ", out_key_cache.shape)
-    print("##### out_key_cache: ", out_key_cache[0, 0, :128*3])
-
+    print("##### out_key_cache: ", out_key_cache[0, 0, :55])
     if enable_kvcache_compress:
         if enable_kvcache_compress == 1:
             key_extra_bytes = block_size * 4
