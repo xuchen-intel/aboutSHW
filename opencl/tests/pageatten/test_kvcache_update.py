@@ -446,8 +446,12 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_u8: ", kv_u8)
 
         dq_scale = kv_scale_div.view(dtype=torch.uint8)
-        # print("############ kv_scale_div.shape: ", kv_scale_div.shape)
-        # print("############ kv_scale_div[:,:,:,0,:74]: ", kv_scale_div[:,:,:,0,:74])
+
+        # print("############ qrange.shape: ", qrange.shape)
+        # print("############ qrange[:,:,:,0,:74]: ", qrange[:,:,:,0,:74])
+
+        # print("############ kv_scale.shape: ", kv_scale.shape)
+        # print("############ kv_scale[:,:,:,0,:74]: ", kv_scale[:,:,:,0,:74])
         # print("############ kv_zp.shape: ", kv_zp.shape)
         # print("############ kv_zp[:,:,:,0,:74]: ", kv_zp[:,:,:,0,:74])
         dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)

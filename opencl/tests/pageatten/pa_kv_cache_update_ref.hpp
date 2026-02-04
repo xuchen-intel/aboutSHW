@@ -153,6 +153,24 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 load_kvcache<HEAD_SIZE>(update_data_u8.row(i), out, update_offset + i * HEAD_SIZE);
                 update_data.row(i) = cm_mul<half>(update_data_u8.row(i) - zp_stale, scale_stale);
                 {
+                    printf("### zp_stale:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 74) continue;
+                        printf("%f ", (float)zp_stale[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
+                {
+                    printf("### scale_stale:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 74) continue;
+                        printf("%f ", (float)scale_stale[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
+                {
                     printf("### update_data:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
                         if (c >= 74) continue;
@@ -191,6 +209,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 dequant_data = cm_min<half>(cm_max<half>(dequant_data, (half)0.0), (half)255.0);
                 vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(dequant_data);
                 {
+                    printf("### qrange:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 74) continue;
+                        printf("%f ", (float)qrange[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
+                {
                     printf("### scale_vals:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
                         if (c >= 74) continue;
@@ -217,6 +244,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                     }
                     printf("\n");
                 }
+                {
+                    printf("### data_u8:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 74) continue;
+                        printf("%f ", (float)data_u8[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
                 store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
             }
         }
@@ -231,6 +267,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     }
 
     vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
+    {
+    printf("### scale_out:\n");
+    for (uint c = 0; c < HEAD_SIZE; c++) {
+        if (c >= 74) continue;
+        printf("%f ", (float)scale_out[c]);
+        if (c % 16 == 15) printf("\n");
+    }
+    printf("\n");
+}
     vector<half, HEAD_SIZE> zp_out = zp_vals;
     uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
     store_kvcache<half, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + scale_offset), 0, scale_out);
