@@ -278,7 +278,7 @@ class ContinuousBatchKVCacheGenerator:
         print("###### input.shape: ", input.shape)
         re = input.reshape(input.shape[0], 8, -1)
         print("###### re.shape: ", re.shape)
-        print("###### re: ", re[:, 0, :])
+        print("###### re[:, 1, :74]: ", re[:, 1, :74])
         assert self.block_size % self.sub_block_size == 0
         num_sub_blocks = self.block_size // self.sub_block_size
         extra_bytes = 4 * num_sub_blocks * _head_size
@@ -293,6 +293,8 @@ class ContinuousBatchKVCacheGenerator:
                     last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
                     if last_token_idx == 0: last_token_idx = self.block_size
                     for h in range(self.num_kv_heads):
+                        # if h != 1:
+                        #     continue
                         token_start_idx = block_idx * self.block_size
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
@@ -395,10 +397,10 @@ class ContinuousBatchKVCacheGenerator:
         mask = torch.ones_like(kv_cache_blocks, dtype=torch.bool)
         if tail_token:
             mask[:, :, tail_sub_block:tail_sub_block+1, tail_token:, :] = False
-        kv_max = torch.where(mask, kv_cache_blocks, float('-inf')).amax(dim=3, keepdim=True).to(dtype=torch.float)
-        kv_min = torch.where(mask, kv_cache_blocks, float('inf')).amin(dim=3, keepdim=True).to(dtype=torch.float)
+        kv_max = torch.where(mask, kv_cache_blocks, torch.tensor(float("-inf"), dtype=torch.float16)).amax(dim=3, keepdim=True)
+        kv_min = torch.where(mask, kv_cache_blocks, torch.tensor(float("inf"), dtype=torch.float16)).amin(dim=3, keepdim=True)
 
-        qrange = (kv_max - kv_min).to(dtype=torch.float)
+        qrange = kv_max - kv_min
 
         # print("###### qrange.shape: ", qrange.shape)
         # print("###### qrange: ", qrange)
@@ -409,11 +411,11 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_min.shape: ", kv_min.shape)
         # print("###### kv_min: ", kv_min)
 
-        U8_MAX = torch.tensor(255.0, dtype=torch.float)
-        U8_MIN = torch.tensor(0.0, dtype=torch.float)
-        U8_RANGE = (U8_MAX - U8_MIN).to(dtype=torch.float)
+        U8_MAX = torch.tensor(255.0, dtype=torch.half)
+        U8_MIN = torch.tensor(0.0, dtype=torch.half)
+        U8_RANGE = U8_MAX - U8_MIN
 
-        kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
+        kv_scale = U8_RANGE / qrange
         zero_mask = qrange == 0
 
         # print("###### zero_mask.shape: ", zero_mask.shape)
@@ -425,8 +427,8 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_scale.shape: ", kv_scale.shape)
         # print("###### kv_scale: ", kv_scale)
 
-        kv_scale_div = (1.0 / kv_scale).to(dtype=torch.float)
-        kv_zp = ((0.0 - kv_min) * kv_scale + U8_MIN).to(dtype=torch.float)
+        kv_scale_div = (1.0 / kv_scale).to(dtype=torch.half)
+        kv_zp = (0.0 - kv_min).to(dtype=torch.half) * kv_scale + U8_MIN
 
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
@@ -435,13 +437,21 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_cache_blocks: ", kv_cache_blocks)
 
         kv_u8 = round_to_even(kv_cache_blocks * kv_scale + kv_zp).to(dtype=torch.uint8)
+
+        # print("############ kv_u8.shape: ", kv_u8.shape)
+        # print("############ kv_u8[:,:,:,0,:74]: ", kv_u8[:,:,:,0,:74])
+
         kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
         # print("###### kv_u8.shape: ", kv_u8.shape)
         # print("###### kv_u8: ", kv_u8)
 
-        dq_scale = kv_scale_div.to(dtype=torch.half).view(dtype=torch.uint8)
+        dq_scale = kv_scale_div.view(dtype=torch.uint8)
+        # print("############ kv_scale_div.shape: ", kv_scale_div.shape)
+        # print("############ kv_scale_div[:,:,:,0,:74]: ", kv_scale_div[:,:,:,0,:74])
+        # print("############ kv_zp.shape: ", kv_zp.shape)
+        # print("############ kv_zp[:,:,:,0,:74]: ", kv_zp[:,:,:,0,:74])
         dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
-        kv_zp = kv_zp.to(dtype=torch.half).view(dtype=torch.uint8)
+        kv_zp = kv_zp.view(dtype=torch.uint8)
         kv_zp = kv_zp.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
 
         return kv_u8, dq_scale, kv_zp
@@ -494,11 +504,11 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
     print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    print("##### key_cache_ref: ", key_cache_ref[0, 0, :55])
+    print("##### key_cache_ref: ", key_cache_ref[0, 1, :74])
     print("##### key_cache.shape: ", key_cache.shape)
-    print("##### key_cache: ", key_cache[0, 0, :55])
+    print("##### key_cache: ", key_cache[0, 1, :74])
     print("##### out_key_cache.shape: ", out_key_cache.shape)
-    print("##### out_key_cache: ", out_key_cache[0, 0, :55])
+    print("##### out_key_cache: ", out_key_cache[0, 1, :74])
     if enable_kvcache_compress:
         if enable_kvcache_compress == 1:
             key_extra_bytes = block_size * 4
