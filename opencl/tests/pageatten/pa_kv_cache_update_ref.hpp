@@ -152,33 +152,33 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
             if (i < dequant_size) {
                 load_kvcache<HEAD_SIZE>(update_data_u8.row(i), out, update_offset + i * HEAD_SIZE);
                 update_data.row(i) = cm_mul<half>(update_data_u8.row(i) - zp_stale, scale_stale);
-                {
-                    printf("### zp_stale:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)zp_stale[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### scale_stale:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)scale_stale[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### update_data:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)update_data.row(i)[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
+                // {
+                //     printf("### zp_stale:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)zp_stale[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### scale_stale:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)scale_stale[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### update_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)update_data.row(i)[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
                 max_vals = cm_max<half>(max_vals, update_data.row(i));
                 min_vals = cm_min<half>(min_vals, update_data.row(i));
                 // {
@@ -200,40 +200,40 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     scale_vals.merge(1.0f, mask);
     vector<half, HEAD_SIZE> zp_vals = cm_mul<half>((0.0 - min_vals), scale_vals);
 
-    half a = 0.8251953125;
-    half b = 6004;
-    half cc = -4700;
-    half d = cm_mul<half>(a, b) + cc;
-    printf("##### a: %.15f\n", (float)a);
-    printf("##### b: %.15f\n", (float)b);
-    printf("##### cc: %.15f\n", (float)cc);
-    printf("##### d: %.15f\n", (float)d);
+    // half a = 0.8251953125;
+    // half b = 6004;
+    // half cc = -4700;
+    // half d = cm_mul<half>(a, b) + cc;
+    // printf("##### a: %.15f\n", (float)a);
+    // printf("##### b: %.15f\n", (float)b);
+    // printf("##### cc: %.15f\n", (float)cc);
+    // printf("##### d: %.15f\n", (float)d);
 
-    vector<half, 2> e = 0.8251953125;
-    vector<half, 2> f = 6004;
-    vector<half, 2> g = -4700;
-    vector<half, 2> h = cm_mul<half>(e, f) + g;
-    printf("##### e[1]: %.15f\n", (float)e[1]);
-    printf("##### f[1]: %.15f\n", (float)f[1]);
-    printf("##### g[1]: %.15f\n", (float)g[1]);
-    printf("##### h[1]: %.15f\n", (float)h[1]);
+    // vector<half, 2> e = 0.8251953125;
+    // vector<half, 2> f = 6004;
+    // vector<half, 2> g = -4700;
+    // vector<half, 2> h = cm_mul<half>(e, f) + g;
+    // printf("##### e[1]: %.15f\n", (float)e[1]);
+    // printf("##### f[1]: %.15f\n", (float)f[1]);
+    // printf("##### g[1]: %.15f\n", (float)g[1]);
+    // printf("##### h[1]: %.15f\n", (float)h[1]);
 
-    matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> l = 0.8251953125;
-    // matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> l = update_data;
-    if (l.row(0)[73] == update_data.row(0)[73]) {
-        printf("##### l.row(0)[73] equals update_data.row(0)[73]\n");
-    } else {
-        printf("##### l.row(0)[73] not equals update_data.row(0)[73]\n");
-        printf("##### l: %.15f\n", (float)l.row(0)[73]);
-        printf("##### u: %.15f\n", (float)update_data.row(0)[73]);
-    }
-    vector<half, HEAD_SIZE> m = 6004;
-    vector<half, HEAD_SIZE> n = -4700;
-    vector<half, HEAD_SIZE> o = cm_mul<half>(l.row(0), m) + n;
-    printf("##### l.row(0)[73]: %.15f\n", (float)l.row(0)[73]);
-    printf("##### m[73]: %.15f\n", (float)m[73]);
-    printf("##### n[73]: %.15f\n", (float)n[73]);
-    printf("##### o[73]: %.15f\n", (float)o[73]);
+    // matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> l = 0.8251953125;
+    // // matrix<half, SUB_BLOCK_SIZE, HEAD_SIZE> l = update_data;
+    // if (l.row(0)[73] == update_data.row(0)[73]) {
+    //     printf("##### l.row(0)[73] equals update_data.row(0)[73]\n");
+    // } else {
+    //     printf("##### l.row(0)[73] not equals update_data.row(0)[73]\n");
+    //     printf("##### l: %.15f\n", (float)l.row(0)[73]);
+    //     printf("##### u: %.15f\n", (float)update_data.row(0)[73]);
+    // }
+    // vector<half, HEAD_SIZE> m = 6004;
+    // vector<half, HEAD_SIZE> n = -4700;
+    // vector<half, HEAD_SIZE> o = cm_mul<half>(l.row(0), m) + n;
+    // printf("##### l.row(0)[73]: %.15f\n", (float)l.row(0)[73]);
+    // printf("##### m[73]: %.15f\n", (float)m[73]);
+    // printf("##### n[73]: %.15f\n", (float)n[73]);
+    // printf("##### o[73]: %.15f\n", (float)o[73]);
 
     if (dequant_size) {
         uint update_offset = data_offset - dequant_size * HEAD_SIZE;
@@ -241,66 +241,66 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         for (int i = 0; i < SUB_BLOCK_SIZE; i++) {
             if (i < dequant_size) {
                 vector<half, HEAD_SIZE> quant_data = cm_mul<half>(update_data.row(i), scale_vals) + zp_vals;
-                {
-                    printf("### quant_data_before_round:\n");
-                    printf("update_data.row(0)[73]: %.15f\n", (float)update_data.row(0)[73]);
-                    printf("scale_vals[73]: %.15f\n", (float)scale_vals[73]);
-                    printf("zp_vals[73]: %.15f\n", (float)zp_vals[73]);
-                    printf("quant_data[73]: %.15f\n", (float)quant_data[73]);
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)quant_data[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
+                // {
+                //     printf("### quant_data_before_round:\n");
+                //     printf("update_data.row(0)[73]: %.15f\n", (float)update_data.row(0)[73]);
+                //     printf("scale_vals[73]: %.15f\n", (float)scale_vals[73]);
+                //     printf("zp_vals[73]: %.15f\n", (float)zp_vals[73]);
+                //     printf("quant_data[73]: %.15f\n", (float)quant_data[73]);
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)quant_data[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
                 quant_data = cm_min<half>(cm_max<half>(quant_data, (half)0.0), (half)255.0);
                 vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
-                {
-                    printf("### qrange:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)qrange[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### scale_vals:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)scale_vals[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### zp_vals:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)zp_vals[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### quant_data:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)quant_data[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
-                {
-                    printf("### data_u8:\n");
-                    for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 74) continue;
-                        printf("%.15f ", (float)data_u8[c]);
-                        if (c % 16 == 15) printf("\n");
-                    }
-                    printf("\n");
-                }
+                // {
+                //     printf("### qrange:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)qrange[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### scale_vals:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)scale_vals[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### zp_vals:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)zp_vals[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### quant_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)quant_data[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
+                //     printf("### data_u8:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= 74) continue;
+                //         printf("%.15f ", (float)data_u8[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
                 store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
             }
         }
@@ -315,15 +315,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     }
 
     vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
-    {
-    printf("### scale_out:\n");
-    for (uint c = 0; c < HEAD_SIZE; c++) {
-        if (c >= 74) continue;
-        printf("%.15f ", (float)scale_out[c]);
-        if (c % 16 == 15) printf("\n");
-    }
-    printf("\n");
-}
+    // {
+    //     printf("### scale_out:\n");
+    //     for (uint c = 0; c < HEAD_SIZE; c++) {
+    //         if (c >= 74) continue;
+    //         printf("%.15f ", (float)scale_out[c]);
+    //         if (c % 16 == 15) printf("\n");
+    //     }
+    //     printf("\n");
+    // }
     vector<half, HEAD_SIZE> zp_out = zp_vals;
     uint zp_offset = scale_offset + BLOCK_SIZE / SUB_BLOCK_SIZE * HEAD_SIZE * sizeof(half);
     store_kvcache<half, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + scale_offset), 0, scale_out);
