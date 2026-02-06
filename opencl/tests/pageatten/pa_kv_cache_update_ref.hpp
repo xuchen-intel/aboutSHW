@@ -120,12 +120,13 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     for (int i = 0; i < cur_sub_block_size; i++) {
         load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
     }
-    int offset = 74;
+    int offset = 2;
     vector<half, HEAD_SIZE> max_vals = in_data.row(0);
     vector<half, HEAD_SIZE> min_vals = in_data.row(0);
     // {
     //     printf("### in_data:\n");
     //     for (uint c = 0; c < HEAD_SIZE; c++) {
+    //         if (c >= offset) continue;
     //         printf("%.15f ", (float)in_data.row(0)[c]);
     //         if (c % 16 == 15) printf("\n");
     //     }
@@ -296,6 +297,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 quant_data = cm_min<half>(cm_max<half>(quant_data, (half)0.0), (half)255.0);
                 vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
                 // {
+                //     printf("### quant_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= offset) continue;
+                //         printf("%.15f ", (float)quant_data[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+                // {
                 //     printf("### qrange:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
                 //         if (c >= offset) continue;
@@ -323,15 +333,6 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 //     printf("\n");
                 // }
                 // {
-                //     printf("### quant_data:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= offset) continue;
-                //         printf("%.15f ", (float)quant_data[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
-                // {
                 //     printf("### data_u8:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
                 //         if (c >= offset) continue;
@@ -351,6 +352,53 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         quant_data = cm_min<half>(cm_max<half>(quant_data, (half)0.0), (half)255.0);
         vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
         store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + data_offset + i * HEAD_SIZE), 0, data_u8);
+        // if (i == 0) {
+        //     {
+        //         printf("### qrange:\n");
+        //         for (uint c = 0; c < HEAD_SIZE; c++) {
+        //             if (c >= offset) continue;
+        //             printf("%.15f ", (float)qrange[c]);
+        //             if (c % 16 == 15) printf("\n");
+        //         }
+        //         printf("\n");
+        //     }
+        //     {
+        //         printf("### scale_vals:\n");
+        //         for (uint c = 0; c < HEAD_SIZE; c++) {
+        //             if (c >= offset) continue;
+        //             printf("%.15f ", (float)scale_vals[c]);
+        //             if (c % 16 == 15) printf("\n");
+        //         }
+        //         printf("\n");
+        //     }
+        //     {
+        //         printf("### zp_vals:\n");
+        //         for (uint c = 0; c < HEAD_SIZE; c++) {
+        //             if (c >= offset) continue;
+        //             printf("%.15f ", (float)zp_vals[c]);
+        //             if (c % 16 == 15) printf("\n");
+        //         }
+        //         printf("\n");
+        //     }
+        //     {
+        //         printf("### quant_data:\n");
+        //         for (uint c = 0; c < HEAD_SIZE; c++) {
+        //             if (c >= offset) continue;
+        //             printf("%.15f ", (float)quant_data[c]);
+        //             if (c % 16 == 15) printf("\n");
+        //         }
+        //         printf("\n");
+        //     }
+        //     {
+        //         printf("### data_u8:\n");
+        //         for (uint c = 0; c < HEAD_SIZE; c++) {
+        //             if (c >= offset) continue;
+        //             printf("%.15f ", (float)data_u8[c]);
+        //             if (c % 16 == 15) printf("\n");
+        //         }
+        //         printf("\n");
+        //     }
+        // }
     }
 
     vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
@@ -450,13 +498,15 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    // if (head_idx != 1) return;
+    // if (head_idx != 0) return;
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
     uint token_idx = global_token_idx;
     uint dequant_size = 0;
     uint cur_sub_block_size = SUB_BLOCK_SIZE;
+
+    // if (token_idx != 0) return;
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     cm_assert(batch_size_in_sequences <= MAX_SEQS);
@@ -479,6 +529,12 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
 // token_idx -> subsequence_idx
 if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
 
+// if (token_idx == 0 && head_idx == 0) {
+//     for (int i = 0; i <= batch_size_in_sequences; i++) {
+//         printf("### subsequence_begins[%d]=%d\n", i, subsequence_begins[i]);
+//     }
+// }
+
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     uint finish = 0;
     for (int i = batch_size_in_sequences - 1; i >= 0 ; i--) {
@@ -490,6 +546,7 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
         // first sub-block
         if (token_idx == subsequence_begins[i]) {
             dequant_size = past_tail_lens[i];
+            cur_sub_block_size = SUB_BLOCK_SIZE - dequant_size;
             finish = 1;
         }
         //middle sub-block

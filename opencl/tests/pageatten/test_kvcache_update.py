@@ -293,8 +293,8 @@ class ContinuousBatchKVCacheGenerator:
                     last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
                     if last_token_idx == 0: last_token_idx = self.block_size
                     for h in range(self.num_kv_heads):
-                        # if h != 1:
-                        #     continue
+                        if h != 0:
+                            continue
                         token_start_idx = block_idx * self.block_size
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
@@ -391,7 +391,7 @@ class ContinuousBatchKVCacheGenerator:
     # kv_cache_blocks [num_blocks, num_kv_heads, num_sub_blocks, sub_block_size, head_size]
     @staticmethod
     def quant_per_channel(kv_cache_blocks, tail_sub_block, tail_token):
-        offset = 74
+        offset = 2
         # print("### tail_sub_block: ", tail_sub_block)
         # print("### tail_token: ", tail_token)
         blk_num, kv_heads, num_sub_blocks, sub_block_size, head_size = kv_cache_blocks.shape
@@ -404,9 +404,6 @@ class ContinuousBatchKVCacheGenerator:
         # kv_min = torch.where(mask, kv_cache_blocks, float('inf')).amin(dim=3, keepdim=True).to(dtype=torch.float)
 
         qrange = kv_max - kv_min
-
-        # print("###### qrange.shape: ", qrange.shape)
-        # print("###### qrange: ", qrange)
 
         # print("###### kv_max.shape: ", kv_max.shape)
         # print("###### kv_max: ", kv_max)
@@ -425,6 +422,13 @@ class ContinuousBatchKVCacheGenerator:
         # by instruction level truncation of fp16 division needs to be avoid
         kv_scale = U8_RANGE / qrange.to(dtype=torch.float)
         zero_mask = qrange == 0
+
+        # a = torch.tensor(255.0, dtype=torch.float)
+        # b = torch.tensor(0.853027343750000, dtype=torch.float)
+        # c = a / b
+        # print("###### a: ", a)
+        # print("###### b: ", b)
+        # print("###### c: ", c)
 
         # print("============== U8_RANGE.dtype: ", U8_RANGE.dtype)
         # print("============== qrange.dtype: ", qrange.dtype)
@@ -445,13 +449,16 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
 
-        # print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
-        # print("###### kv_cache_blocks[:,:,:,0,:offset]: ", kv_cache_blocks[:,:,:,0,:offset])
+        print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
+        print("###### kv_cache_blocks[:,:,0,0,:offset]: ", kv_cache_blocks[:,:,0,0,:offset])
 
-        # print("############ kv_scale.shape: ", kv_scale.shape)
-        # print("############ kv_scale[:,:,:,0,:offset]: ", kv_scale[:,:,:,0,:offset])
-        # print("############ kv_zp.shape: ", kv_zp.shape)
-        # print("############ kv_zp[:,:,:,0,:offset]: ", kv_zp[:,:,:,0,:offset])
+        print("############ qrange.shape: ", qrange.shape)
+        print("############ qrange[:,:,0,0,:offset]: ", qrange[:,:,0,0,:offset])
+
+        print("############ kv_scale.shape: ", kv_scale.shape)
+        print("############ kv_scale[:,:,0,0,:offset]: ", kv_scale[:,:,0,0,:offset])
+        print("############ kv_zp.shape: ", kv_zp.shape)
+        print("############ kv_zp[:,:,0,0,:offset]: ", kv_zp[:,:,0,0,:offset])
 
         # print("###### U8_RANGE.shape: ", U8_RANGE.shape)
         # print("###### U8_RANGE: ", U8_RANGE)
@@ -482,17 +489,14 @@ class ContinuousBatchKVCacheGenerator:
 
         kv_u8 = round_to_even((kv_cache_blocks * kv_scale).to(dtype=torch.half) + kv_zp).to(dtype=torch.uint8)
 
-        # print("############ kv_u8.shape: ", kv_u8.shape)
-        # print("############ kv_u8[:,:,:,0,:offset]: ", kv_u8[:,:,:,0,:offset])
+        print("############ kv_u8.shape: ", kv_u8.shape)
+        print("############ kv_u8[:,:,0,0,:offset]: ", kv_u8[:,:,0,0,:offset])
 
         kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
         # print("###### kv_u8.shape: ", kv_u8.shape)
         # print("###### kv_u8: ", kv_u8)
 
         dq_scale = kv_scale_div.view(dtype=torch.uint8)
-
-        # print("############ qrange.shape: ", qrange.shape)
-        # print("############ qrange[:,:,:,0,:offset]: ", qrange[:,:,:,0,:offset])
 
         dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
         kv_zp = kv_zp.view(dtype=torch.uint8)
@@ -547,12 +551,12 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
-    # print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    # print("##### key_cache_ref: ", key_cache_ref[0, 1, :74])
-    # print("##### key_cache.shape: ", key_cache.shape)
-    # print("##### key_cache: ", key_cache[0, 1, :74])
-    # print("##### out_key_cache.shape: ", out_key_cache.shape)
-    # print("##### out_key_cache: ", out_key_cache[0, 1, :74])
+    print("##### key_cache_ref.shape: ", key_cache_ref.shape)
+    print("##### key_cache_ref: ", key_cache_ref[0, 0, :2])
+    print("##### key_cache.shape: ", key_cache.shape)
+    print("##### key_cache: ", key_cache[0, 0, :2])
+    print("##### out_key_cache.shape: ", out_key_cache.shape)
+    print("##### out_key_cache: ", out_key_cache[0, 0, :2])
     if enable_kvcache_compress:
         if enable_kvcache_compress == 1:
             key_extra_bytes = block_size * 4
@@ -701,7 +705,7 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
-    # test_pa_kv_cache_update([51, 55], [10, 8], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
-    test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    test_pa_kv_cache_update([51, 55], [10, 8], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+    # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=8, sub_block_size=4, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([31], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
