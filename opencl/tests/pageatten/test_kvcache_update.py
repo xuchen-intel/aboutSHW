@@ -293,8 +293,8 @@ class ContinuousBatchKVCacheGenerator:
                     last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
                     if last_token_idx == 0: last_token_idx = self.block_size
                     for h in range(self.num_kv_heads):
-                        if h != 1:
-                            continue
+                        # if h != 1:
+                        #     continue
                         token_start_idx = block_idx * self.block_size
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
@@ -529,7 +529,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     # print(f'{Colors.BLUE} {key=} {Colors.END}')
     # print(f'{Colors.BLUE} {value=} {Colors.END}')
 
-    # key_cache, value_cache = cb_kvcache_gnr.get_kv_cache()
+    key_cache, value_cache = cb_kvcache_gnr.get_kv_cache()
     key_cache_ref, value_cache_ref = cb_kvcache_gnr.get_kv_cache(False)
 
     # print(f'{Colors.BLUE} ============ {key_cache_ref.shape=} {key_cache_ref.is_contiguous()=} {Colors.END}')
