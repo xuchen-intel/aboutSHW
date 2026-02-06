@@ -196,6 +196,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     vector<half, HEAD_SIZE> qrange = max_vals - min_vals;
     vector<ushort, HEAD_SIZE> mask = (qrange == (half)0.0);
 
+    // scale_vals needs fp32 precision to avoid accuracy loss caused by instruction level truncation of fp16 division
     vector<float, HEAD_SIZE> scale_vals = 255.0 / qrange;
     scale_vals.merge(1.0f, mask);
     vector<half, HEAD_SIZE> zp_vals = cm_mul<half>((0.0 - min_vals), scale_vals);
@@ -439,7 +440,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    if (head_idx != 0) return;
+    // if (head_idx != 0) return;
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 

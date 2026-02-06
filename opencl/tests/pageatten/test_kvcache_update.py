@@ -397,8 +397,10 @@ class ContinuousBatchKVCacheGenerator:
         mask = torch.ones_like(kv_cache_blocks, dtype=torch.bool)
         if tail_token:
             mask[:, :, tail_sub_block:tail_sub_block+1, tail_token:, :] = False
-        kv_max = torch.where(mask, kv_cache_blocks, torch.tensor(float("-inf"), dtype=torch.float16)).amax(dim=3, keepdim=True)
-        kv_min = torch.where(mask, kv_cache_blocks, torch.tensor(float("inf"), dtype=torch.float16)).amin(dim=3, keepdim=True)
+        # kv_max = torch.where(mask, kv_cache_blocks, torch.tensor(float("-inf"), dtype=torch.float16)).amax(dim=3, keepdim=True)
+        # kv_min = torch.where(mask, kv_cache_blocks, torch.tensor(float("inf"), dtype=torch.float16)).amin(dim=3, keepdim=True)
+        kv_max = torch.where(mask, kv_cache_blocks, float('-inf')).amax(dim=3, keepdim=True).to(dtype=torch.float)
+        kv_min = torch.where(mask, kv_cache_blocks, float('inf')).amin(dim=3, keepdim=True).to(dtype=torch.float)
 
         qrange = kv_max - kv_min
 
@@ -411,11 +413,16 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_min.shape: ", kv_min.shape)
         # print("###### kv_min: ", kv_min)
 
-        U8_MAX = torch.tensor(255.0, dtype=torch.half)
-        U8_MIN = torch.tensor(0.0, dtype=torch.half)
+        # U8_MAX = torch.tensor(255.0, dtype=torch.half)
+        # U8_MIN = torch.tensor(0.0, dtype=torch.half)
+        U8_MAX = torch.tensor(255.0, dtype=torch.float)
+        U8_MIN = torch.tensor(0.0, dtype=torch.float)
         U8_RANGE = U8_MAX - U8_MIN
 
-        kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
+        # kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
+        # kv_scale needs to be fp32 to align with cm kernel, where accuracy loss caused
+        # by instruction level truncation of fp16 division needs to be avoid
+        kv_scale = U8_RANGE / qrange
         zero_mask = qrange == 0
 
         # print("###### zero_mask.shape: ", zero_mask.shape)
@@ -428,7 +435,7 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_scale: ", kv_scale)
 
         kv_scale_div = (1.0 / kv_scale).to(dtype=torch.half)
-        kv_zp = (0.0 - kv_min) * kv_scale + U8_MIN
+        kv_zp = ((0.0 - kv_min) * kv_scale + U8_MIN).to(dtype=torch.half)
 
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
@@ -459,7 +466,14 @@ class ContinuousBatchKVCacheGenerator:
         # To simulate single rounding behavior of FMA in cm kernel, kv_scale is converted to float to avoid double rounding
         # kv_u8_before_round = kv_cache_blocks * kv_scale.to(dtype=float) + kv_zp
         # print("############ kv_u8_before_round.shape: ", kv_u8_before_round.shape)
-        # print("############ kv_u8_before_round[:,:,:,0,:74]: ", kv_u8_before_round[:,:,:,0,:74])
+        # print("############ kv_u8_before_round[:,:,:,0,:79]: ", kv_u8_before_round[:,:,:,0,:79])
+
+        # a = kv_cache_blocks[:,:,:,0,78]
+        # b = kv_scale[:,:,:,0,78]
+        # c = a * b
+        # print("############ a: ", a)
+        # print("############ b: ", b)
+        # print("############ c: ", c)
 
         kv_u8 = round_to_even(kv_cache_blocks * kv_scale + kv_zp).to(dtype=torch.uint8)
 
