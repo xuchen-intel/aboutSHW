@@ -275,10 +275,10 @@ class ContinuousBatchKVCacheGenerator:
     def __get_kv_cache_u8_per_channel(self, _head_size, input_data, skip_input):
         torch.set_printoptions(threshold=10_000_000, linewidth=128)
         input = input_data[0]
-        # print("###### input.shape: ", input.shape)
-        # re = input.reshape(input.shape[0], 8, -1)
-        # print("###### re.shape: ", re.shape)
-        # print("###### re[:, 1, :74]: ", re[:, 1, :74])
+        print("###### input.shape: ", input.shape)
+        re = input.reshape(input.shape[0], 8, -1)
+        print("###### re.shape: ", re.shape)
+        print("###### re[:, 0, :79]: ", re[:, 0, :79])
         assert self.block_size % self.sub_block_size == 0
         num_sub_blocks = self.block_size // self.sub_block_size
         extra_bytes = 4 * num_sub_blocks * _head_size
@@ -293,8 +293,8 @@ class ContinuousBatchKVCacheGenerator:
                     last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
                     if last_token_idx == 0: last_token_idx = self.block_size
                     for h in range(self.num_kv_heads):
-                        # if h != 1:
-                        #     continue
+                        if h != 0:
+                            continue
                         token_start_idx = block_idx * self.block_size
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
@@ -433,13 +433,13 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
 
-        # print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
-        # print("###### kv_cache_blocks[:,:,:,0,:74]: ", kv_cache_blocks[:,:,:,0,:74])
+        print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
+        print("###### kv_cache_blocks[:,:,:,0,:79]: ", kv_cache_blocks[:,:,:,0,:79])
 
-        # print("############ kv_scale.shape: ", kv_scale.shape)
-        # print("############ kv_scale[:,:,:,0,:74]: ", kv_scale[:,:,:,0,:74])
-        # print("############ kv_zp.shape: ", kv_zp.shape)
-        # print("############ kv_zp[:,:,:,0,:74]: ", kv_zp[:,:,:,0,:74])
+        print("############ kv_scale.shape: ", kv_scale.shape)
+        print("############ kv_scale[:,:,:,0,:79]: ", kv_scale[:,:,:,0,:79])
+        print("############ kv_zp.shape: ", kv_zp.shape)
+        print("############ kv_zp[:,:,:,0,:79]: ", kv_zp[:,:,:,0,:79])
 
         # print("###### U8_RANGE.shape: ", U8_RANGE.shape)
         # print("###### U8_RANGE: ", U8_RANGE)
@@ -463,8 +463,8 @@ class ContinuousBatchKVCacheGenerator:
 
         kv_u8 = round_to_even(kv_cache_blocks * kv_scale.to(dtype=float) + kv_zp).to(dtype=torch.uint8)
 
-        # print("############ kv_u8.shape: ", kv_u8.shape)
-        # print("############ kv_u8[:,:,:,0,:74]: ", kv_u8[:,:,:,0,:74])
+        print("############ kv_u8.shape: ", kv_u8.shape)
+        print("############ kv_u8[:,:,:,0,:79]: ", kv_u8[:,:,:,0,:79])
 
         kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
         # print("###### kv_u8.shape: ", kv_u8.shape)
@@ -472,8 +472,8 @@ class ContinuousBatchKVCacheGenerator:
 
         dq_scale = kv_scale_div.view(dtype=torch.uint8)
 
-        # print("############ qrange.shape: ", qrange.shape)
-        # print("############ qrange[:,:,:,0,:74]: ", qrange[:,:,:,0,:74])
+        print("############ qrange.shape: ", qrange.shape)
+        print("############ qrange[:,:,:,0,:79]: ", qrange[:,:,:,0,:79])
 
         dq_scale = dq_scale.reshape(blk_num, kv_heads, num_sub_blocks * head_size * 2)
         kv_zp = kv_zp.view(dtype=torch.uint8)
@@ -528,12 +528,12 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
-    # print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    # print("##### key_cache_ref: ", key_cache_ref[0, 1, :74])
-    # print("##### key_cache.shape: ", key_cache.shape)
-    # print("##### key_cache: ", key_cache[0, 1, :74])
-    # print("##### out_key_cache.shape: ", out_key_cache.shape)
-    # print("##### out_key_cache: ", out_key_cache[0, 1, :74])
+    print("##### key_cache_ref.shape: ", key_cache_ref.shape)
+    print("##### key_cache_ref: ", key_cache_ref[0, 0, :79])
+    print("##### key_cache.shape: ", key_cache.shape)
+    print("##### key_cache: ", key_cache[0, 0, :79])
+    print("##### out_key_cache.shape: ", out_key_cache.shape)
+    print("##### out_key_cache: ", out_key_cache[0, 0, :79])
     if enable_kvcache_compress:
         if enable_kvcache_compress == 1:
             key_extra_bytes = block_size * 4

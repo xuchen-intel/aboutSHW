@@ -170,15 +170,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 //     }
                 //     printf("\n");
                 // }
-                // {
-                //     printf("### update_data:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
-                //         printf("%.15f ", (float)update_data.row(i)[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
+                {
+                    printf("### update_data:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 79) continue;
+                        printf("%.15f ", (float)update_data.row(i)[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
                 max_vals = cm_max<half>(max_vals, update_data.row(i));
                 min_vals = cm_min<half>(min_vals, update_data.row(i));
                 // {
@@ -199,6 +199,32 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     vector<half, HEAD_SIZE> scale_vals = 255.0 / qrange;
     scale_vals.merge(1.0f, mask);
     vector<half, HEAD_SIZE> zp_vals = cm_mul<half>((0.0 - min_vals), scale_vals);
+
+    // half a = 255;
+    // half b = 0.04248046875;
+    // half cc = a / b;
+    // printf("##### a: %.15f\n", (float)a);
+    // printf("##### b: %.15f\n", (float)b);
+    // printf("##### cc: %.15f\n", (float)cc);
+
+    half d = 255;
+    half e = 0.0068359375;
+    half f = (float)d / (float)e;
+    printf("##### d: %.15f\n", (float)d);
+    printf("##### e: %.15f\n", (float)e);
+    printf("##### f: %.15f\n", (float)f);
+
+    half g = 255;
+    float h = qrange[78];
+    if (e == h) {
+        printf("##### e equals h\n");
+    } else {
+        printf("##### e not equals h\n");
+    }
+    float j = g / h;
+    printf("##### g: %.15f\n", (float)g);
+    printf("##### h: %.15f\n", (float)h);
+    printf("##### j: %.15f\n", (float)j);
 
     // half a = 0.8251953125;
     // half b = 6004;
@@ -256,33 +282,33 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 // }
                 quant_data = cm_min<half>(cm_max<half>(quant_data, (half)0.0), (half)255.0);
                 vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
-                // {
-                //     printf("### qrange:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
-                //         printf("%.15f ", (float)qrange[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
-                // {
-                //     printf("### scale_vals:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
-                //         printf("%.15f ", (float)scale_vals[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
-                // {
-                //     printf("### zp_vals:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
-                //         printf("%.15f ", (float)zp_vals[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
+                {
+                    printf("### qrange:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 79) continue;
+                        printf("%.15f ", (float)qrange[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
+                {
+                    printf("### scale_vals:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 79) continue;
+                        printf("%.15f ", (float)scale_vals[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
+                {
+                    printf("### zp_vals:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 79) continue;
+                        printf("%.15f ", (float)zp_vals[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
                 // {
                 //     printf("### quant_data:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
@@ -292,15 +318,15 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 //     }
                 //     printf("\n");
                 // }
-                // {
-                //     printf("### data_u8:\n");
-                //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
-                //         printf("%.15f ", (float)data_u8[c]);
-                //         if (c % 16 == 15) printf("\n");
-                //     }
-                //     printf("\n");
-                // }
+                {
+                    printf("### data_u8:\n");
+                    for (uint c = 0; c < HEAD_SIZE; c++) {
+                        if (c >= 79) continue;
+                        printf("%.15f ", (float)data_u8[c]);
+                        if (c % 16 == 15) printf("\n");
+                    }
+                    printf("\n");
+                }
                 store_kvcache<uchar, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out + update_offset + i * HEAD_SIZE), 0, data_u8);
             }
         }
@@ -409,7 +435,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    // if (head_idx != 1) return;
+    if (head_idx != 0) return;
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
