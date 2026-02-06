@@ -120,7 +120,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     for (int i = 0; i < cur_sub_block_size; i++) {
         load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
     }
-
+    int offset = 74;
     vector<half, HEAD_SIZE> max_vals = in_data.row(0);
     vector<half, HEAD_SIZE> min_vals = in_data.row(0);
     // {
@@ -155,7 +155,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 // {
                 //     printf("### zp_stale:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
+                //         if (c >= offset) continue;
                 //         printf("%.15f ", (float)zp_stale[c]);
                 //         if (c % 16 == 15) printf("\n");
                 //     }
@@ -164,7 +164,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 // {
                 //     printf("### scale_stale:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
+                //         if (c >= offset) continue;
                 //         printf("%.15f ", (float)scale_stale[c]);
                 //         if (c % 16 == 15) printf("\n");
                 //     }
@@ -173,7 +173,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 {
                     printf("### update_data:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 79) continue;
+                        if (c >= offset) continue;
                         printf("%.15f ", (float)update_data.row(i)[c]);
                         if (c % 16 == 15) printf("\n");
                     }
@@ -270,6 +270,16 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         for (int i = 0; i < SUB_BLOCK_SIZE; i++) {
             if (i < dequant_size) {
                 vector<half, HEAD_SIZE> quant_data = cm_mul<half>(update_data.row(i), scale_vals) + zp_vals;
+                {
+                    half a = update_data.row(0)[73];
+                    float b = scale_vals[73];
+                    half cc = zp_vals[73];
+                    half d = a * b;
+                    printf("### a: %.15f\n", (float)a);
+                    printf("### b: %.15f\n", (float)b);
+                    // printf("### cc: %.15f\n", (float)cc);
+                    printf("### d: %.15f\n", (float)d);
+                }
                 // {
                 //     printf("### quant_data_before_round:\n");
                 //     printf("update_data.row(0)[73]: %.15f\n", (float)update_data.row(0)[73]);
@@ -277,7 +287,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 //     printf("zp_vals[73]: %.15f\n", (float)zp_vals[73]);
                 //     printf("quant_data[73]: %.15f\n", (float)quant_data[73]);
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
+                //         if (c >= offset) continue;
                 //         printf("%.15f ", (float)quant_data[c]);
                 //         if (c % 16 == 15) printf("\n");
                 //     }
@@ -288,7 +298,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 {
                     printf("### qrange:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 79) continue;
+                        if (c >= offset) continue;
                         printf("%.15f ", (float)qrange[c]);
                         if (c % 16 == 15) printf("\n");
                     }
@@ -297,7 +307,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 {
                     printf("### scale_vals:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 79) continue;
+                        if (c >= offset) continue;
                         printf("%.15f ", (float)scale_vals[c]);
                         if (c % 16 == 15) printf("\n");
                     }
@@ -306,7 +316,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 {
                     printf("### zp_vals:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 79) continue;
+                        if (c >= offset) continue;
                         printf("%.15f ", (float)zp_vals[c]);
                         if (c % 16 == 15) printf("\n");
                     }
@@ -315,7 +325,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 // {
                 //     printf("### quant_data:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
-                //         if (c >= 74) continue;
+                //         if (c >= offset) continue;
                 //         printf("%.15f ", (float)quant_data[c]);
                 //         if (c % 16 == 15) printf("\n");
                 //     }
@@ -324,7 +334,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 {
                     printf("### data_u8:\n");
                     for (uint c = 0; c < HEAD_SIZE; c++) {
-                        if (c >= 79) continue;
+                        if (c >= offset) continue;
                         printf("%.15f ", (float)data_u8[c]);
                         if (c % 16 == 15) printf("\n");
                     }
@@ -349,7 +359,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     {
         printf("### scale_out:\n");
         for (uint c = 0; c < HEAD_SIZE; c++) {
-            if (c >= 79) continue;
+            if (c >= offset) continue;
             printf("%.15f ", (float)scale_out[c]);
             if (c % 16 == 15) printf("\n");
         }
@@ -440,7 +450,7 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    // if (head_idx != 0) return;
+    if (head_idx != 1) return;
 
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
