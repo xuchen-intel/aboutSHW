@@ -415,7 +415,7 @@ class ContinuousBatchKVCacheGenerator:
         U8_MIN = torch.tensor(0.0, dtype=torch.half)
         U8_RANGE = U8_MAX - U8_MIN
 
-        kv_scale = U8_RANGE / qrange
+        kv_scale = (U8_RANGE / qrange).to(dtype=torch.float)
         zero_mask = qrange == 0
 
         # print("###### zero_mask.shape: ", zero_mask.shape)
@@ -428,7 +428,7 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_scale: ", kv_scale)
 
         kv_scale_div = (1.0 / kv_scale).to(dtype=torch.half)
-        kv_zp = (0.0 - kv_min).to(dtype=torch.half) * kv_scale + U8_MIN
+        kv_zp = (0.0 - kv_min) * kv_scale + U8_MIN
 
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
@@ -461,7 +461,7 @@ class ContinuousBatchKVCacheGenerator:
         # print("############ kv_u8_before_round.shape: ", kv_u8_before_round.shape)
         # print("############ kv_u8_before_round[:,:,:,0,:74]: ", kv_u8_before_round[:,:,:,0,:74])
 
-        kv_u8 = round_to_even(kv_cache_blocks * kv_scale.to(dtype=float) + kv_zp).to(dtype=torch.uint8)
+        kv_u8 = round_to_even(kv_cache_blocks * kv_scale + kv_zp).to(dtype=torch.uint8)
 
         print("############ kv_u8.shape: ", kv_u8.shape)
         print("############ kv_u8[:,:,:,0,:79]: ", kv_u8[:,:,:,0,:79])
@@ -510,7 +510,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     # print(f'{Colors.BLUE} {key=} {Colors.END}')
     # print(f'{Colors.BLUE} {value=} {Colors.END}')
 
-    key_cache, value_cache = cb_kvcache_gnr.get_kv_cache()
+    # key_cache, value_cache = cb_kvcache_gnr.get_kv_cache()
     key_cache_ref, value_cache_ref = cb_kvcache_gnr.get_kv_cache(False)
 
     # print(f'{Colors.BLUE} ============ {key_cache_ref.shape=} {key_cache_ref.is_contiguous()=} {Colors.END}')
