@@ -293,8 +293,8 @@ class ContinuousBatchKVCacheGenerator:
                     last_token_idx = process_len % self.block_size if block_idx == blocks_num -1 else self.block_size
                     if last_token_idx == 0: last_token_idx = self.block_size
                     for h in range(self.num_kv_heads):
-                        if h != 0:
-                            continue
+                        # if h != 0:
+                        #     continue
                         token_start_idx = block_idx * self.block_size
                         token_end_idx = token_start_idx + last_token_idx
                         input_block_per_head = input_data[i][token_start_idx:token_end_idx, h*_head_size:(h+1)*_head_size].reshape(1, 1, -1, _head_size)
