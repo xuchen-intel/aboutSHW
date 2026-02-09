@@ -540,13 +540,13 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
     for (int i = batch_size_in_sequences - 1; i >= 0 ; i--) {
         // last sub-block
         if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[i + 1]) {
-            cur_sub_block_size = subsequence_begins[i + 1] - token_idx;
+            cur_sub_block_size -= pad_lens[i];
             finish = 1;
         }
         // first sub-block
         if (token_idx == subsequence_begins[i]) {
             dequant_size = past_tail_lens[i];
-            cur_sub_block_size = SUB_BLOCK_SIZE - dequant_size;
+            cur_sub_block_size -= dequant_size;
             finish = 1;
         }
         //middle sub-block
