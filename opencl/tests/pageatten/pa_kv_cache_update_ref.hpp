@@ -535,32 +535,6 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
 //     }
 // }
 
-#if KV_CACHE_COMPRESSION_PER_TOKEN == 2
-    uint finish = 0;
-    for (int i = batch_size_in_sequences - 1; i >= 0 ; i--) {
-        // last sub-block
-        if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[i + 1]) {
-            cur_sub_block_size -= pad_lens[i];
-            finish = 1;
-        }
-        // first sub-block
-        if (token_idx == subsequence_begins[i]) {
-            dequant_size = past_tail_lens[i];
-            cur_sub_block_size -= dequant_size;
-            finish = 1;
-        }
-        //middle sub-block
-        if (token_idx > subsequence_begins[i]) {
-            finish = 1;
-        }
-        if (finish) {
-            break;
-        }
-    }
-
-    printf("global_token_idx: %d, token_idx: %d, dequant_size: %d, cur_sub_block_size: %d\n", global_token_idx, token_idx, dequant_size, cur_sub_block_size);
-#endif
-
     uint subsequence_idx = 0;
     for (uint i = 0; i < batch_size_in_sequences; i++) {
         if (token_idx >= subsequence_begins[i] && token_idx < subsequence_begins[i + 1]) {
@@ -569,6 +543,20 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
         }
     }
     // printf("wg:%d.%d, token_idx: %d, subsequence_idx: %d\n", wg_id, wg_local_id, token_idx, subsequence_idx);
+
+#if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    // last sub-block
+    if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[subsequence_idx + 1]) {
+        cur_sub_block_size -= pad_lens[subsequence_idx];
+    }
+    // first sub-block
+    if (token_idx == subsequence_begins[subsequence_idx]) {
+        dequant_size = past_tail_lens[subsequence_idx];
+        cur_sub_block_size -= dequant_size;
+    }
+
+    printf("global_token_idx: %d, token_idx: %d, dequant_size: %d, cur_sub_block_size: %d\n", global_token_idx, token_idx, dequant_size, cur_sub_block_size);
+#endif
 
     const uint subsequence_begin_idx = subsequence_begins[subsequence_idx];
     const uint past_len = past_lens[subsequence_idx];
