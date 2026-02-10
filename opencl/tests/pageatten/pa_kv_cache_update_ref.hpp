@@ -120,7 +120,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
     for (int i = 0; i < cur_sub_block_size; i++) {
         load_kvcache<HEAD_SIZE>(in_data.row(i), in, (in_offset + i * pitch) * (int)sizeof(half));
     }
-    int offset = 2;
+    int offset = 30;
     vector<half, HEAD_SIZE> max_vals = in_data.row(0);
     vector<half, HEAD_SIZE> min_vals = in_data.row(0);
     // {
@@ -194,13 +194,35 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         }
     }
 
-    vector<half, HEAD_SIZE> qrange = max_vals - min_vals;
+    vector<float, HEAD_SIZE> qrange = max_vals - min_vals;
     vector<ushort, HEAD_SIZE> mask = (qrange == (half)0.0);
 
     // scale_vals needs fp32 precision to avoid accuracy loss caused by instruction level truncation of fp16 division
-    vector<float, HEAD_SIZE> scale_vals = 255.0 / qrange;
+    // vector<float, HEAD_SIZE> scale_vals = 255.0 / qrange;
+    vector<float, HEAD_SIZE> scale_vals = cm_div_ieee(255.0, qrange);
     scale_vals.merge(1.0f, mask);
     vector<half, HEAD_SIZE> zp_vals = cm_mul<half>((0.0 - min_vals), scale_vals);
+
+    // float a = 255;
+    // half b = 0.00732421875;
+    // float c = a / b;
+    // printf("##### a: %.15f\n", a);
+    // printf("##### b: %.15f\n", (float)b);
+    // printf("##### c: %.15f\n", c);
+
+    // float d = 255;
+    // half e = qrange[29];
+    // float f = d / e;
+    // printf("##### d: %.15f\n", d);
+    // printf("##### e: %.15f\n", (float)e);
+    // printf("##### f: %.15f\n", f);
+
+    // half dd = 255;
+    // half ee = qrange[29];
+    // half ff = dd / ee;
+    // printf("##### dd: %.15f\n", (float)dd);
+    // printf("##### ee: %.15f\n", (float)ee);
+    // printf("##### ff: %.15f\n", (float)ff);
 
     // half a = 255;
     // half b = 0.04248046875;
@@ -295,12 +317,22 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
                 //     printf("\n");
                 // }
                 quant_data = cm_min<half>(cm_max<half>(quant_data, (half)0.0), (half)255.0);
-                vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
                 // {
                 //     printf("### quant_data:\n");
                 //     for (uint c = 0; c < HEAD_SIZE; c++) {
                 //         if (c >= offset) continue;
                 //         printf("%.15f ", (float)quant_data[c]);
+                //         if (c % 16 == 15) printf("\n");
+                //     }
+                //     printf("\n");
+                // }
+
+                vector<uchar, HEAD_SIZE> data_u8 = cm_rnde<uchar, HEAD_SIZE>(quant_data);
+                // {
+                //     printf("### update_data:\n");
+                //     for (uint c = 0; c < HEAD_SIZE; c++) {
+                //         if (c >= offset) continue;
+                //         printf("%.15f ", (float)update_data.row(i)[c]);
                 //         if (c % 16 == 15) printf("\n");
                 //     }
                 //     printf("\n");
@@ -401,7 +433,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         // }
     }
 
-    vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
+    vector<half, HEAD_SIZE> scale_out = cm_div_ieee(1.0, scale_vals);
     // printf("############ scale_vals[78]: %.15f\n", (float)scale_vals[78]);
     // printf("############ scale_out[78]: %.15f\n", (float)scale_out[78]);
     // {
@@ -498,15 +530,11 @@ extern "C" _GENX_MAIN_ void pa_kv_cache_update(
     const auto head_idx = cm_group_id(1);
     const auto wg_id = cm_group_id(2);
 
-    // if (head_idx != 0) return;
-
     const uint global_token_idx = KV_CACHE_COMPRESSION_PER_TOKEN == 2 ? cm_global_id(2) * SUB_BLOCK_SIZE : cm_global_id(2);
 
     uint token_idx = global_token_idx;
     uint dequant_size = 0;
     uint cur_sub_block_size = SUB_BLOCK_SIZE;
-
-    // if (token_idx != 0) return;
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     cm_assert(batch_size_in_sequences <= MAX_SEQS);
@@ -543,6 +571,10 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
         }
     }
     // printf("wg:%d.%d, token_idx: %d, subsequence_idx: %d\n", wg_id, wg_local_id, token_idx, subsequence_idx);
+
+    // if (subsequence_idx != 1) return;
+    // if (head_idx != 3) return;
+    // if (token_idx != 0) return;
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
     // if (token_idx == 0) {
