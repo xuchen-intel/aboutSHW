@@ -449,16 +449,17 @@ class ContinuousBatchKVCacheGenerator:
         # print("###### kv_zp.shape: ", kv_zp.shape)
         # print("###### kv_zp: ", kv_zp)
 
-        print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
-        print("###### kv_cache_blocks[:,:,0,0,:offset]: ", kv_cache_blocks[:,:,0,0,:offset])
+        # print("###### kv_cache_blocks.shape: ", kv_cache_blocks.shape)
+        # print("###### kv_cache_blocks[:,:,0,0,:offset]: ", kv_cache_blocks[:,:,0,0,:offset])
 
-        print("############ qrange.shape: ", qrange.shape)
-        print("############ qrange[:,:,0,0,:offset]: ", qrange[:,:,0,0,:offset])
+        # print("############ qrange.shape: ", qrange.shape)
+        # print("############ qrange[:,:,0,0,:offset]: ", qrange[:,:,0,0,:offset])
 
-        print("############ kv_scale.shape: ", kv_scale.shape)
-        print("############ kv_scale[:,:,0,0,:offset]: ", kv_scale[:,:,0,0,:offset])
-        print("############ kv_zp.shape: ", kv_zp.shape)
-        print("############ kv_zp[:,:,0,0,:offset]: ", kv_zp[:,:,0,0,:offset])
+        # print("############ kv_scale.shape: ", kv_scale.shape)
+        # print("############ kv_scale[:,:,0,0,:offset]: ", kv_scale[:,:,0,0,:offset])
+
+        # print("############ kv_zp.shape: ", kv_zp.shape)
+        # print("############ kv_zp[:,:,0,0,:offset]: ", kv_zp[:,:,0,0,:offset])
 
         # print("###### U8_RANGE.shape: ", U8_RANGE.shape)
         # print("###### U8_RANGE: ", U8_RANGE)
@@ -489,8 +490,8 @@ class ContinuousBatchKVCacheGenerator:
 
         kv_u8 = round_to_even((kv_cache_blocks * kv_scale).to(dtype=torch.half) + kv_zp).to(dtype=torch.uint8)
 
-        print("############ kv_u8.shape: ", kv_u8.shape)
-        print("############ kv_u8[:,:,0,0,:offset]: ", kv_u8[:,:,0,0,:offset])
+        # print("############ kv_u8.shape: ", kv_u8.shape)
+        # print("############ kv_u8[:,:,0,0,:offset]: ", kv_u8[:,:,0,0,:offset])
 
         kv_u8 = kv_u8.reshape(blk_num, kv_heads, -1)
         # print("###### kv_u8.shape: ", kv_u8.shape)
@@ -551,12 +552,12 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     torch.set_printoptions(threshold=10_000_000, linewidth=128)
-    print("##### key_cache_ref.shape: ", key_cache_ref.shape)
-    print("##### key_cache_ref: ", key_cache_ref[1, 3, :30])
-    print("##### key_cache.shape: ", key_cache.shape)
-    print("##### key_cache: ", key_cache[1, 3, :30])
-    print("##### out_key_cache.shape: ", out_key_cache.shape)
-    print("##### out_key_cache: ", out_key_cache[1, 3, :30])
+    # print("##### key_cache_ref.shape: ", key_cache_ref.shape)
+    # print("##### key_cache_ref: ", key_cache_ref[1, 3, :30])
+    # print("##### key_cache.shape: ", key_cache.shape)
+    # print("##### key_cache: ", key_cache[1, 3, :30])
+    # print("##### out_key_cache.shape: ", out_key_cache.shape)
+    # print("##### out_key_cache: ", out_key_cache[1, 3, :30])
     if enable_kvcache_compress:
         if enable_kvcache_compress == 1:
             key_extra_bytes = block_size * 4
@@ -712,20 +713,16 @@ if __name__ == "__main__":
     pairs = [
         # ([32*1024], [0]),
         # ([32*1024], [16*1024]),
-        # ([1],       [0]),
+        ([1],       [0]),
         # ([1],       [1]),
         # ([1, 1],    [1, 1]),
-        # ([37, 1],   [21, 1]),
-        # ([13, 1],   [13, 1]),
-        # ([15, 1],   [13, 1]),
-        # ([43, 1],   [13, 1]),
-        ([43, 1],   [23, 1]),
-        # ([43, 1],   [231, 1]),
+        # ([43, 1],   [23, 1]),
         # ([51, 55],  [10, 8]),
         # ([37, 91, 1], [21, 3, 1]),
     ]
     for num_tokens, past_lens in pairs:
-        test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
+        for sub_block_size in [32]:
+            test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=8, sub_block_size=4, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([31], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)

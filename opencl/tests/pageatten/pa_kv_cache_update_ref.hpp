@@ -433,6 +433,7 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
         // }
     }
 
+    // vector<half, HEAD_SIZE> scale_out = 1.0 / scale_vals;
     vector<half, HEAD_SIZE> scale_out = cm_div_ieee(1.0, scale_vals);
     // printf("############ scale_vals[78]: %.15f\n", (float)scale_vals[78]);
     // printf("############ scale_out[78]: %.15f\n", (float)scale_out[78]);
@@ -590,7 +591,7 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
         cur_sub_block_size -= dequant_size;
     }
 
-    printf("global_token_idx: %d, token_idx: %d, dequant_size: %d, cur_sub_block_size: %d\n", global_token_idx, token_idx, dequant_size, cur_sub_block_size);
+    // printf("global_token_idx: %d, token_idx: %d, dequant_size: %d, cur_sub_block_size: %d\n", global_token_idx, token_idx, dequant_size, cur_sub_block_size);
 #endif
 
     const uint subsequence_begin_idx = subsequence_begins[subsequence_idx];
