@@ -545,8 +545,11 @@ if (token_idx >= subsequence_begins[batch_size_in_sequences]) return;
     // printf("wg:%d.%d, token_idx: %d, subsequence_idx: %d\n", wg_id, wg_local_id, token_idx, subsequence_idx);
 
 #if KV_CACHE_COMPRESSION_PER_TOKEN == 2
+    // if (token_idx == 0) {
+    //     printf("token_idx: %d, subsequence_idx: %d, subsequence_begins[0]: %d, subsequence_begins[1]: %d, subsequence_begins[2]: %d\n", token_idx, subsequence_idx, subsequence_begins[0], subsequence_begins[1], subsequence_begins[2]);
+    // }
     // last sub-block
-    if (token_idx + SUB_BLOCK_SIZE > subsequence_begins[subsequence_idx + 1]) {
+    if (token_idx + (SUB_BLOCK_SIZE - pad_lens[subsequence_idx]) >= subsequence_begins[subsequence_idx + 1]) {
         cur_sub_block_size -= pad_lens[subsequence_idx];
     }
     // first sub-block
