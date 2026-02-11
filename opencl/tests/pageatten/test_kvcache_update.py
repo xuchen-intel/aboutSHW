@@ -711,18 +711,19 @@ if __name__ == "__main__":
     # test_pa_kv_cache_update([37, 1], [21, 1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([37, 91, 1], [21, 3, 1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     pairs = [
-        # ([32*1024], [0]),
-        # ([32*1024], [16*1024]),
+        ([32*1024], [0]),
+        ([32*1024], [16*1024]),
         ([1],       [0]),
-        # ([1],       [1]),
-        # ([1, 1],    [1, 1]),
-        # ([43, 1],   [23, 1]),
-        # ([51, 55],  [10, 8]),
-        # ([37, 91, 1], [21, 3, 1]),
+        ([1],       [1]),
+        ([1, 1],    [1, 1]),
+        ([43, 1],   [23, 1]),
+        ([51, 55],  [10, 8]),
+        ([37, 91, 1], [21, 3, 1]),
     ]
     for num_tokens, past_lens in pairs:
-        for sub_block_size in [32]:
-            test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=2, check_perf=True)
+        for sub_block_size in [16]:
+            for enalbe_kvcache_compress in [0, 1, 2]:
+                test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([1], [1], num_kv_heads=1, k_head_size=16, v_head_size=16, block_size=8, sub_block_size=4, enable_kvcache_compress=2, check_perf=True)
     # test_pa_kv_cache_update([31], [1], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=16, enable_kvcache_compress=2, check_perf=True)
