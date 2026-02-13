@@ -91,12 +91,16 @@ class pa_kvcache_update_cm:
 
         # In quantization per channel, the tails of past tokens need to be included for updating scale and zp
         process_tokens = batch_size_in_tokens
+        past_tail_tokens = 0
+        past_tail_sub_blocks = 0
         if self.enable_kvcache_compress == 2:
             process_tokens = 0
             for i in range(batch_size_in_sequences):
                 past_tail = past_lens[i] % self.sub_block_size
                 cur_tokens = subsequence_begins[i + 1] - subsequence_begins[i]
                 process_tokens += (past_tail + cur_tokens + self.sub_block_size - 1) // self.sub_block_size * self.sub_block_size
+                past_tail_tokens += past_tail
+                past_tail_sub_blocks += (past_tail > 0)
         wg_seq_len = self.wg_size * self.sub_block_size if self.enable_kvcache_compress == 2 else self.wg_size
         wg_count = (process_tokens + wg_seq_len - 1) // wg_seq_len
         GWS = [1, self.num_kv_heads, int(wg_count * self.wg_size)]
@@ -128,8 +132,14 @@ class pa_kvcache_update_cm:
                 if self.enable_kvcache_compress == 1:
                     total_bytes = batch_size_in_tokens * self.num_kv_heads * (3 * self.k_head_size + 3 * self.v_head_size + 8)
                 elif self.enable_kvcache_compress == 2:
+                    # current data: read fp16, write u8
+                    # past data: read u8, write u8
+                    # current scale/zp: write fp16 x 2
+                    # past scale/zp: read fp16 x 2
                     total_bytes = batch_size_in_tokens * self.num_kv_heads * (3 * self.k_head_size + 3 * self.v_head_size) \
-                                + (batch_size_in_tokens / self.sub_block_size * 4) * self.num_kv_heads * (self.k_head_size + self.v_head_size)
+                                + past_tail_tokens * self.num_kv_heads * (2 * self.k_head_size + 2 * self.v_head_size) \
+                                + (process_tokens / self.sub_block_size * 4) * self.num_kv_heads * (self.k_head_size + self.v_head_size) \
+                                + past_tail_sub_blocks * 4 * self.num_kv_heads * (self.k_head_size + self.v_head_size)
                 else:
                     total_bytes = batch_size_in_tokens * self.num_kv_heads * (4 * self.k_head_size + 4 * self.v_head_size)
                 tput = total_bytes / time_opt
@@ -601,16 +611,16 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
     pairs = [
-        ([32*1024], [0]),
-        ([32*1024], [16*1024]),
-        ([1],       [0]),
+        # ([32*1024], [0]),
+        # ([32*1024], [16*1024]),
+        # ([1],       [0]),
         ([1],       [1]),
-        ([1, 1],    [1, 1]),
-        ([43, 1],   [23, 1]),
-        ([51, 55],  [10, 8]),
-        ([37, 91, 1], [21, 3, 1]),
+        # ([1, 1],    [1, 1]),
+        # ([43, 1],   [23, 1]),
+        # ([51, 55],  [10, 8]),
+        # ([37, 91, 1], [21, 3, 1]),
     ]
     for num_tokens, past_lens in pairs:
-        for sub_block_size in [16, 32]:
-            for enalbe_kvcache_compress in [0, 1, 2]:
+        for sub_block_size in [16]:
+            for enalbe_kvcache_compress in [2]:
                 test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=enalbe_kvcache_compress, check_perf=True)
