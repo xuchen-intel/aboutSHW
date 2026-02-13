@@ -451,7 +451,7 @@ def test_pa_kv_cache_update(num_tokens:list, past_lens:list, num_kv_heads=1, k_h
    
     # opt
     pa_cm = pa_kvcache_update_cm.create_instance(num_kv_heads, k_head_size, v_head_size, block_size, sub_block_size, enable_kvcache_compress)
-    n_repeats = 1 if check_perf else 1
+    n_repeats = 20 if check_perf else 1
     out_key_cache, out_value_cache = pa_cm(key, value, key_cache, value_cache, past_lens, subsequence_begins, block_indices, block_indices_begins, n_repeats)
 
     if enable_kvcache_compress:
@@ -611,6 +611,6 @@ if __name__ == "__main__":
         ([37, 91, 1], [21, 3, 1]),
     ]
     for num_tokens, past_lens in pairs:
-        for sub_block_size in [16]:
+        for sub_block_size in [16, 32]:
             for enalbe_kvcache_compress in [0, 1, 2]:
                 test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=enalbe_kvcache_compress, check_perf=True)
