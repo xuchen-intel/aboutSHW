@@ -610,17 +610,31 @@ if __name__ == "__main__":
     #     # test_pa_kv_cache_update([1], [0], num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=block_size, enable_kvcache_compress=compress_kvcache, check_perf=False)
     #     # test_pa_kv_cache_update([1024], [0], num_kv_heads=2, k_head_size=16, v_head_size=16, block_size=32, sub_block_size=block_size, check_perf=False)
     #     # test_pa_kv_cache_update([129], [0], num_kv_heads=2, k_head_size=64, v_head_size=64, block_size=16, sub_block_size=block_size, check_perf=True)
-    pairs = [
-        # ([32*1024], [0]),
-        # ([32*1024], [16*1024]),
-        # ([1],       [0]),
-        ([1],       [1]),
-        # ([1, 1],    [1, 1]),
-        # ([43, 1],   [23, 1]),
-        # ([51, 55],  [10, 8]),
-        # ([37, 91, 1], [21, 3, 1]),
+
+    if 0:
+        token_pairs_acc = [
+            ([32*1024], [0]),
+            ([32*1024], [16*1024]),
+            ([1],       [0]),
+            ([1],       [1]),
+            ([1, 1],    [1, 1]),
+            ([43, 1],   [23, 1]),
+            ([51, 55],  [10, 8]),
+            ([37, 91, 1], [21, 3, 1]),
+        ]
+        for num_tokens, past_lens in token_pairs_acc:
+            for sub_block_size in [16, 32]:
+                for enalbe_kvcache_compress in [0, 1, 2]:
+                    test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=enalbe_kvcache_compress, check_perf=False)
+
+    token_pairs_perf = [
+        ([32*1024], [0]),
+        ([1], [32*1024]),
+        ([1], [32*1024+1]),
+        ([1], [32*1024+8]),
+        ([1], [32*1024+15]),
     ]
-    for num_tokens, past_lens in pairs:
-        for sub_block_size in [16]:
+    for num_tokens, past_lens in token_pairs_perf:
+        for sub_block_size in [16, 32]:
             for enalbe_kvcache_compress in [2]:
                 test_pa_kv_cache_update(num_tokens, past_lens, num_kv_heads=8, k_head_size=128, v_head_size=128, block_size=256, sub_block_size=sub_block_size, enable_kvcache_compress=enalbe_kvcache_compress, check_perf=True)
