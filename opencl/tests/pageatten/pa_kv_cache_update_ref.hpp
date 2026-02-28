@@ -188,9 +188,9 @@ CM_INLINE void process_quantization_per_channel(const half* in, uchar* out, uint
 #else
 template <int HEAD_SIZE>
 CM_INLINE void process_no_quantization(const half* in, uchar* out, uint in_offset, uint out_offset) {
-    vector<half, K_HEAD_SIZE> in_data;
-    load_kvcache<K_HEAD_SIZE>(in_data, in, in_offset * (int)sizeof(half));
-    store_kvcache<half, K_HEAD_SIZE>(reinterpret_cast<svmptr_t>(out), out_offset * (int)sizeof(half), in_data);
+    vector<half, HEAD_SIZE> in_data;
+    load_kvcache<HEAD_SIZE>(in_data, in, in_offset * (int)sizeof(half));
+    store_kvcache<half, HEAD_SIZE>(reinterpret_cast<svmptr_t>(out), out_offset * (int)sizeof(half), in_data);
 }
 #endif
 
