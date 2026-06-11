@@ -81,8 +81,8 @@ void pa_lsc_u8(
     matrix<half, head_size / REG_K, REG_K * REG_N> rQ;
     constexpr int rO_half_rows = head_size / 2 / REG_N * num_P_tiles;
     static_assert(head_size % (2 * REG_N) == 0, "head_size must be divisible by 2*REG_N for rO split");
-    matrix<float, rO_half_rows, REG_M * REG_N> rO_lo;
-    matrix<float, rO_half_rows, REG_M * REG_N> rO_hi;
+    matrix<float, rO_half_rows, REG_M * REG_N> rO_0;
+    matrix<float, rO_half_rows, REG_M * REG_N> rO_2;
     bool first_active = true;
 
     // clamp per-tile valid query tokens to [0, q_step]
@@ -352,12 +352,12 @@ void pa_lsc_u8(
 
                     constexpr uint slm_V_hi_offset = (head_size / 2) * REG_K * sizeof(half);
                     if (first_active) {
-                        ugemm_PV0(slm_V, P, rO_lo, slm_offset);
-                        ugemm_PV0(slm_V, P, rO_hi, slm_offset + slm_V_hi_offset);
+                        ugemm_PV0(slm_V, P, rO_0, slm_offset);
+                        ugemm_PV0(slm_V, P, rO_2, slm_offset + slm_V_hi_offset);
                         first_active = false;
                     } else {
-                        ugemm_PV1(slm_V, P, max_comp, rO_lo, slm_offset);
-                        ugemm_PV1(slm_V, P, max_comp, rO_hi, slm_offset + slm_V_hi_offset);
+                        ugemm_PV1(slm_V, P, max_comp, rO_0, slm_offset);
+                        ugemm_PV1(slm_V, P, max_comp, rO_2, slm_offset + slm_V_hi_offset);
                     }
                 }
             }
@@ -541,12 +541,12 @@ void pa_lsc_u8(
 
             constexpr uint slm_V_hi_offset_legacy = (head_size / 2) * REG_K * sizeof(half);
             if (first_active) {
-                ugemm_PV0(slm_V, P, rO_lo, slm_offset);
-                ugemm_PV0(slm_V, P, rO_hi, slm_offset + slm_V_hi_offset_legacy);
+                ugemm_PV0(slm_V, P, rO_0, slm_offset);
+                ugemm_PV0(slm_V, P, rO_2, slm_offset + slm_V_hi_offset_legacy);
                 first_active = false;
             } else {
-                ugemm_PV1(slm_V, P, max_comp, rO_lo, slm_offset);
-                ugemm_PV1(slm_V, P, max_comp, rO_hi, slm_offset + slm_V_hi_offset_legacy);
+                ugemm_PV1(slm_V, P, max_comp, rO_0, slm_offset);
+                ugemm_PV1(slm_V, P, max_comp, rO_2, slm_offset + slm_V_hi_offset_legacy);
             }
         }
     }
@@ -575,20 +575,17 @@ void pa_lsc_u8(
         o_pitch - 1,
         0, 0);
 
-    // Store lower half of head_size from rO_lo
+    // Store first quarter from rO_0
     #pragma unroll
-    for (int k = 0, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
-
+    for (int k = 0, ri = 0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
         #pragma unroll
         for (int p = 0; p < num_P_tiles; p++) {
-            auto cO = rO_lo[ri + p].format<float, REG_M, REG_N>();
-
+            auto cO = rO_0[ri + p].format<float, REG_M, REG_N>();
             #pragma unroll
             for (int r = 0; r < cO.n_rows(); r++) {
                 cur_O_f16[r + p * REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p * REG_M]);
             }
         }
-
         b2dO.set_block_x(k);
         cm_store(b2dO.set_block_y(0),
                  cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
@@ -596,20 +593,53 @@ void pa_lsc_u8(
                  cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
     }
 
-    // Store upper half of head_size from rO_hi
+    // Store second quarter from rO_1
     #pragma unroll
-    for (int k = head_size / 2, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
-
+    for (int k = head_size / 4, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
         #pragma unroll
         for (int p = 0; p < num_P_tiles; p++) {
-            auto cO = rO_hi[ri + p].format<float, REG_M, REG_N>();
-
+            auto cO = rO_1[ri + p].format<float, REG_M, REG_N>();
             #pragma unroll
             for (int r = 0; r < cO.n_rows(); r++) {
                 cur_O_f16[r + p * REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p * REG_M]);
             }
         }
+        b2dO.set_block_x(k);
+        cm_store(b2dO.set_block_y(0),
+                 cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
+        cm_store(b2dO.set_block_y(REG_M),
+                 cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
+    }
 
+    // Store third quarter from rO_2
+    #pragma unroll
+    for (int k = head_size / 2, ri = 0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
+        #pragma unroll
+        for (int p = 0; p < num_P_tiles; p++) {
+            auto cO = rO_2[ri + p].format<float, REG_M, REG_N>();
+            #pragma unroll
+            for (int r = 0; r < cO.n_rows(); r++) {
+                cur_O_f16[r + p * REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p * REG_M]);
+            }
+        }
+        b2dO.set_block_x(k);
+        cm_store(b2dO.set_block_y(0),
+                 cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
+        cm_store(b2dO.set_block_y(REG_M),
+                 cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
+    }
+
+    // Store fourth quarter from rO_3
+    #pragma unroll
+    for (int k = 3 * head_size / 4, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+        #pragma unroll
+        for (int p = 0; p < num_P_tiles; p++) {
+            auto cO = rO_3[ri + p].format<float, REG_M, REG_N>();
+            #pragma unroll
+            for (int r = 0; r < cO.n_rows(); r++) {
+                cur_O_f16[r + p * REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p * REG_M]);
+            }
+        }
         b2dO.set_block_x(k);
         cm_store(b2dO.set_block_y(0),
                  cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
@@ -651,11 +681,20 @@ void pa_kernel_lsc_prefetch_f16(
     cur_max = -3e38f;
     cur_sum = 0;
     constexpr int num_P_tiles = REG_N / REG_M;
-    matrix<half, head_size/REG_K, REG_K*REG_N> rQ;
+    // For head_size=256, REG_K=16, REG_N=16: rQ would be 16x256 = 8192 bytes (exceeds "< 8192" limit)
+    // Split rQ by rows into two 8x256 matrices = 4096 bytes each
+    constexpr int rQ_rows = head_size / REG_K;
+    constexpr int rQ_rows_half = rQ_rows / 2;
+    matrix<half, rQ_rows_half, REG_K*REG_N> rQ_lo;
+    matrix<half, rQ_rows_half, REG_K*REG_N> rQ_hi;
     constexpr int rO_half_rows_f16 = head_size / 2 / REG_N * num_P_tiles;
     static_assert(head_size % (2 * REG_N) == 0, "head_size must be divisible by 2*REG_N for rO split");
-    matrix<float, rO_half_rows_f16, REG_M * REG_N> rO_lo;
-    matrix<float, rO_half_rows_f16, REG_M * REG_N> rO_hi;
+    // rO would be 16x128 = 8192 bytes (at limit), split into 4 quarters: 8x128 = 4096 bytes each
+    constexpr int rO_quarter_rows = rO_half_rows_f16 / 2;
+    matrix<float, rO_quarter_rows, REG_M * REG_N> rO_0;  // first quarter
+    matrix<float, rO_quarter_rows, REG_M * REG_N> rO_1;  // second quarter
+    matrix<float, rO_quarter_rows, REG_M * REG_N> rO_2;  // third quarter
+    matrix<float, rO_quarter_rows, REG_M * REG_N> rO_3;  // fourth quarter
     bool first_active = true;
 
 #if SPARSE_BLOCK_SIZE > 1
@@ -685,10 +724,17 @@ void pa_kernel_lsc_prefetch_f16(
     if (q_tokens_in_tile == 0) return;
 
     lsc::block_2d_desc<uint, 1, REG_N, REG_K/2> b2dQ(reinterpret_cast<uint*>(q_base), q_tokens_in_tile - 1, head_size*sizeof(half) - 1, q_pitch - 1, 0, 0);
+    // Load first half (head_size/4 elements) into rQ_lo
     #pragma unroll
-    for(int k = 0, ri = 0; k < head_size/2; k += REG_K/2, ri++) {
-        cm_load<lsc::Transpose>(rQ[ri].format<uint>(), b2dQ.set_block_x(k));
-        rQ[ri].format<half>() = cm_mul<half>(rQ[ri].format<half>(), (half)scale_factor);
+    for(int k = 0, ri = 0; k < head_size/4; k += REG_K/2, ri++) {
+        cm_load<lsc::Transpose>(rQ_lo[ri].format<uint>(), b2dQ.set_block_x(k));
+        rQ_lo[ri].format<half>() = cm_mul<half>(rQ_lo[ri].format<half>(), (half)scale_factor);
+    }
+    // Load second half (head_size/4 to head_size/2) into rQ_hi
+    #pragma unroll
+    for(int k = head_size/4, ri = 0; k < head_size/2; k += REG_K/2, ri++) {
+        cm_load<lsc::Transpose>(rQ_hi[ri].format<uint>(), b2dQ.set_block_x(k));
+        rQ_hi[ri].format<half>() = cm_mul<half>(rQ_hi[ri].format<half>(), (half)scale_factor);
     }
 
     lsc::block_2d_desc<half, 1, kv_step, REG_K> b2dK(k_cache_base, CMPA_BLOCK_SZ - 1, head_size*sizeof(half) - 1, k_pitch - 1, 0, 0);
@@ -754,18 +800,33 @@ void pa_kernel_lsc_prefetch_f16(
             for(int k = 0; k < num_K; k++)
                 St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                 0,
-                                rQ[0].format<int32_t>(),
+                                rQ_lo[0].format<int32_t>(),
                                 Kmat[k].format<int32_t>());
 
+            // Process first half (rQ_lo)
             #pragma unroll
-            for(int ri = 1; ri < head_size/REG_K; ri++) {
+            for(int ri = 1; ri < rQ_rows_half; ri++) {
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_K.set_block_x(ri*REG_K));
                 cm_load<lsc::Normal>(Kmat.format<half>(), b2dK.set_block_x(ri*REG_K));
                 #pragma unroll
                 for(int k = 0; k < num_K; k++) {
                     St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                         St2.row(k),
-                        rQ[ri].format<int32_t>(),
+                        rQ_lo[ri].format<int32_t>(),
+                        Kmat[k].format<int32_t>());
+                }
+            }
+            // Process second half (rQ_hi)
+            #pragma unroll
+            for(int ri = 0; ri < rQ_rows_half; ri++) {
+                int k_offset = (rQ_rows_half + ri) * REG_K;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_K.set_block_x(k_offset));
+                cm_load<lsc::Normal>(Kmat.format<half>(), b2dK.set_block_x(k_offset));
+                #pragma unroll
+                for(int k = 0; k < num_K; k++) {
+                    St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                        St2.row(k),
+                        rQ_hi[ri].format<int32_t>(),
                         Kmat[k].format<int32_t>());
                 }
             }
@@ -790,9 +851,9 @@ void pa_kernel_lsc_prefetch_f16(
         b2dV.set_block_y(kv_pos%CMPA_BLOCK_SZ);
         if (first_active) {
             auto P2 = P.format<half, num_P_tiles, REG_M * REG_K>();
-            // PV0 lower half
+            // PV0 first quarter
             #pragma unroll
-            for(int k = 0, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+            for(int k = 0, ri = 0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
@@ -806,15 +867,15 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_lo[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                    rO_0[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                     0,
                                     Vmat.format<int32_t>(),
                                     P2.row(p).format<int32_t>());
                 }
             }
-            // PV0 upper half
+            // PV0 second quarter
             #pragma unroll
-            for(int k = head_size / 2, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+            for(int k = head_size / 4, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
@@ -828,7 +889,51 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_hi[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                    rO_1[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                                    0,
+                                    Vmat.format<int32_t>(),
+                                    P2.row(p).format<int32_t>());
+                }
+            }
+            // PV0 third quarter
+            #pragma unroll
+            for(int k = head_size / 2, ri = 0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_2[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                                    0,
+                                    Vmat.format<int32_t>(),
+                                    P2.row(p).format<int32_t>());
+                }
+            }
+            // PV0 fourth quarter
+            #pragma unroll
+            for(int k = 3 * head_size / 4, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_3[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                     0,
                                     Vmat.format<int32_t>(),
                                     P2.row(p).format<int32_t>());
@@ -838,9 +943,9 @@ void pa_kernel_lsc_prefetch_f16(
         }
         else {
             auto P2 = P.format<half, num_P_tiles, REG_M * REG_K>();
-            // PV1 lower half
+            // PV1 first quarter
             #pragma unroll
-            for(int k = 0, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+            for(int k = 0, ri=0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
 
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
@@ -855,7 +960,7 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    auto cO = rO_lo[ri + p].format<float, REG_M, REG_N>();
+                    auto cO = rO_0[ri + p].format<float, REG_M, REG_N>();
                     #pragma unroll
                     for(int r = 0; r < REG_M; r++)
                         cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
@@ -863,15 +968,45 @@ void pa_kernel_lsc_prefetch_f16(
 
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_lo[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
-                                rO_lo[ri + p].format<float>(),
+                    rO_0[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_0[ri + p].format<float>(),
                                 Vmat.format<int32_t>(),
                                 P2.row(p).format<int32_t>());
                 }
             }
-            // PV1 upper half
+            // PV1 second quarter
             #pragma unroll
-            for(int k = head_size / 2, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+            for(int k = head_size / 4, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    auto cO = rO_1[ri + p].format<float, REG_M, REG_N>();
+                    #pragma unroll
+                    for(int r = 0; r < REG_M; r++)
+                        cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
+                }
+
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_1[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_1[ri + p].format<float>(),
+                                Vmat.format<int32_t>(),
+                                P2.row(p).format<int32_t>());
+                }
+            }
+            // PV1 third quarter
+            #pragma unroll
+            for(int k = head_size / 2, ri=0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
 
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
@@ -886,7 +1021,7 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    auto cO = rO_hi[ri + p].format<float, REG_M, REG_N>();
+                    auto cO = rO_2[ri + p].format<float, REG_M, REG_N>();
                     #pragma unroll
                     for(int r = 0; r < REG_M; r++)
                         cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
@@ -894,8 +1029,32 @@ void pa_kernel_lsc_prefetch_f16(
 
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_hi[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
-                                rO_hi[ri + p].format<float>(),
+                    rO_2[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_2[ri + p].format<float>(),
+                                Vmat.format<int32_t>(),
+                                P2.row(p).format<int32_t>());
+                }
+            }
+            // PV1 fourth quarter
+            #pragma unroll
+            for(int k = 3 * head_size / 4, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_3[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_3[ri + p].format<float>(),
                                 Vmat.format<int32_t>(),
                                 P2.row(p).format<int32_t>());
                 }
@@ -944,18 +1103,33 @@ void pa_kernel_lsc_prefetch_f16(
             for(int k = 0; k < num_K; k++)
                 St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                 0,
-                                rQ[0].format<int32_t>(),
+                                rQ_lo[0].format<int32_t>(),
                                 Kmat[k].format<int32_t>());
 
+            // Process first half (rQ_lo)
             #pragma unroll
-            for(int ri = 1; ri < head_size/REG_K; ri++) {
+            for(int ri = 1; ri < rQ_rows_half; ri++) {
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_K.set_block_x(ri*REG_K));
                 cm_load<lsc::Normal>(Kmat.format<half>(), b2dK.set_block_x(ri*REG_K));
                 #pragma unroll
                 for(int k = 0; k < num_K; k++) {
                     St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                         St2.row(k),
-                        rQ[ri].format<int32_t>(),
+                        rQ_lo[ri].format<int32_t>(),
+                        Kmat[k].format<int32_t>());
+                }
+            }
+            // Process second half (rQ_hi)
+            #pragma unroll
+            for(int ri = 0; ri < rQ_rows_half; ri++) {
+                int k_offset = (rQ_rows_half + ri) * REG_K;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_K.set_block_x(k_offset));
+                cm_load<lsc::Normal>(Kmat.format<half>(), b2dK.set_block_x(k_offset));
+                #pragma unroll
+                for(int k = 0; k < num_K; k++) {
+                    St2.row(k) = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                        St2.row(k),
+                        rQ_hi[ri].format<int32_t>(),
                         Kmat[k].format<int32_t>());
                 }
             }
@@ -980,9 +1154,9 @@ void pa_kernel_lsc_prefetch_f16(
         b2dV.set_block_y(kv_pos%CMPA_BLOCK_SZ);
         if (first_active) {
             auto P2 = P.format<half, num_P_tiles, REG_M * REG_K>();
-            // PV0 lower half
+            // PV0 first quarter
             #pragma unroll
-            for(int k = 0, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+            for(int k = 0, ri = 0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
@@ -996,15 +1170,15 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_lo[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                    rO_0[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                     0,
                                     Vmat.format<int32_t>(),
                                     P2.row(p).format<int32_t>());
                 }
             }
-            // PV0 upper half
+            // PV0 second quarter
             #pragma unroll
-            for(int k = head_size / 2, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+            for(int k = head_size / 4, ri = 0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
                 cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
@@ -1018,7 +1192,51 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_hi[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                    rO_1[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                                    0,
+                                    Vmat.format<int32_t>(),
+                                    P2.row(p).format<int32_t>());
+                }
+            }
+            // PV0 third quarter
+            #pragma unroll
+            for(int k = head_size / 2, ri = 0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_2[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
+                                    0,
+                                    Vmat.format<int32_t>(),
+                                    P2.row(p).format<int32_t>());
+                }
+            }
+            // PV0 fourth quarter
+            #pragma unroll
+            for(int k = 3 * head_size / 4, ri = 0; k < head_size; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_3[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount, float>(
                                     0,
                                     Vmat.format<int32_t>(),
                                     P2.row(p).format<int32_t>());
@@ -1028,9 +1246,9 @@ void pa_kernel_lsc_prefetch_f16(
         }
         else {
             auto P2 = P.format<half, num_P_tiles, REG_M * REG_K>();
-            // PV1 lower half
+            // PV1 first quarter
             #pragma unroll
-            for(int k = 0, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+            for(int k = 0, ri=0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
 
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
@@ -1045,7 +1263,7 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    auto cO = rO_lo[ri + p].format<float, REG_M, REG_N>();
+                    auto cO = rO_0[ri + p].format<float, REG_M, REG_N>();
                     #pragma unroll
                     for(int r = 0; r < REG_M; r++)
                         cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
@@ -1053,15 +1271,45 @@ void pa_kernel_lsc_prefetch_f16(
 
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_lo[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
-                                rO_lo[ri + p].format<float>(),
+                    rO_0[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_0[ri + p].format<float>(),
                                 Vmat.format<int32_t>(),
                                 P2.row(p).format<int32_t>());
                 }
             }
-            // PV1 upper half
+            // PV1 second quarter
             #pragma unroll
-            for(int k = head_size / 2, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+            for(int k = head_size / 4, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+                matrix<half, REG_K/2, REG_N*2> Vmat;
+                cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
+                cm_load<lsc::VNNI>(Vmat.format<half>(), b2dV.set_block_x(k));
+                if ((kv_pos + kv_step) > kv_stop) {
+                    uint valid_rows = kv_stop - kv_pos;
+                    uint valid_rows_vnni = (valid_rows+1)/2;
+                    for (int r = valid_rows_vnni; r < kv_step / 2; r++)
+                        Vmat.row(r) = 0.f;
+                    if (valid_rows % 2 == 1)
+                        Vmat.row(valid_rows_vnni-1).select<REG_N,2>(1) = 0.f;
+                }
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    auto cO = rO_1[ri + p].format<float, REG_M, REG_N>();
+                    #pragma unroll
+                    for(int r = 0; r < REG_M; r++)
+                        cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
+                }
+
+                #pragma unroll
+                for(int p = 0; p < num_P_tiles; p++) {
+                    rO_1[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_1[ri + p].format<float>(),
+                                Vmat.format<int32_t>(),
+                                P2.row(p).format<int32_t>());
+                }
+            }
+            // PV1 third quarter
+            #pragma unroll
+            for(int k = head_size / 2, ri=0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
                 matrix<half, REG_K/2, REG_N*2> Vmat;
 
                 cm_prefetch<CacheHint::Cached, CacheHint::Cached>(prefetch_V.set_block_x(k));
@@ -1076,7 +1324,7 @@ void pa_kernel_lsc_prefetch_f16(
                 }
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    auto cO = rO_hi[ri + p].format<float, REG_M, REG_N>();
+                    auto cO = rO_2[ri + p].format<float, REG_M, REG_N>();
                     #pragma unroll
                     for(int r = 0; r < REG_M; r++)
                         cO.row(r) = cm_mul<float>(cO.row(r), max_comp[r + p*REG_M]);
@@ -1084,8 +1332,8 @@ void pa_kernel_lsc_prefetch_f16(
 
                 #pragma unroll
                 for(int p = 0; p < num_P_tiles; p++) {
-                    rO_hi[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
-                                rO_hi[ri + p].format<float>(),
+                    rO_2[ri + p] = cm_dpas<CM_PRECISION_HF, CM_PRECISION_HF, SystolicDepth, RepeatCount>(
+                                rO_2[ri + p].format<float>(),
                                 Vmat.format<int32_t>(),
                                 P2.row(p).format<int32_t>());
                 }
@@ -1106,12 +1354,12 @@ void pa_kernel_lsc_prefetch_f16(
 
     lsc::block_2d_desc<half, 1, REG_M, REG_N> b2dO(o_base, q_tokens_in_tile - 1, head_size*sizeof(half) - 1, o_pitch - 1, 0, 0);
 
-    // Store lower half of head_size from rO_lo
+    // Store first quarter from rO_0
     #pragma unroll
-    for(int k = 0, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
+    for(int k = 0, ri=0; k < head_size / 4; k += REG_N, ri += num_P_tiles) {
         #pragma unroll
         for(int p = 0; p < num_P_tiles; p++) {
-            auto cO = rO_lo[ri + p].format<float, REG_M, REG_N>();
+            auto cO = rO_0[ri + p].format<float, REG_M, REG_N>();
             #pragma unroll
             for(int r = 0; r < cO.n_rows(); r++) {
                 cur_O_f16[r + p*REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p*REG_M]);
@@ -1122,12 +1370,44 @@ void pa_kernel_lsc_prefetch_f16(
         cm_store(b2dO.set_block_y(REG_M), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
     }
 
-    // Store upper half of head_size from rO_hi
+    // Store second quarter from rO_1
     #pragma unroll
-    for(int k = head_size / 2, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+    for(int k = head_size / 4, ri=0; k < head_size / 2; k += REG_N, ri += num_P_tiles) {
         #pragma unroll
         for(int p = 0; p < num_P_tiles; p++) {
-            auto cO = rO_hi[ri + p].format<float, REG_M, REG_N>();
+            auto cO = rO_1[ri + p].format<float, REG_M, REG_N>();
+            #pragma unroll
+            for(int r = 0; r < cO.n_rows(); r++) {
+                cur_O_f16[r + p*REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p*REG_M]);
+            }
+        }
+        b2dO.set_block_x(k);
+        cm_store(b2dO.set_block_y(0), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
+        cm_store(b2dO.set_block_y(REG_M), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
+    }
+
+    // Store third quarter from rO_2
+    #pragma unroll
+    for(int k = head_size / 2, ri=0; k < 3 * head_size / 4; k += REG_N, ri += num_P_tiles) {
+        #pragma unroll
+        for(int p = 0; p < num_P_tiles; p++) {
+            auto cO = rO_2[ri + p].format<float, REG_M, REG_N>();
+            #pragma unroll
+            for(int r = 0; r < cO.n_rows(); r++) {
+                cur_O_f16[r + p*REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p*REG_M]);
+            }
+        }
+        b2dO.set_block_x(k);
+        cm_store(b2dO.set_block_y(0), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(0));
+        cm_store(b2dO.set_block_y(REG_M), cur_O_f16.format<half, num_P_tiles, REG_M * REG_N>().row(1));
+    }
+
+    // Store fourth quarter from rO_3
+    #pragma unroll
+    for(int k = 3 * head_size / 4, ri=0; k < head_size; k += REG_N, ri += num_P_tiles) {
+        #pragma unroll
+        for(int p = 0; p < num_P_tiles; p++) {
+            auto cO = rO_3[ri + p].format<float, REG_M, REG_N>();
             #pragma unroll
             for(int r = 0; r < cO.n_rows(); r++) {
                 cur_O_f16[r + p*REG_M] = cm_mul<float>(cO.row(r), cur_sum[r + p*REG_M]);
