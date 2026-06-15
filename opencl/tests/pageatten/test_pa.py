@@ -1123,10 +1123,10 @@ if __name__ == "__main__":
         seq_len = 32 * 1024
         block_sz = 256
         trunk_sz = seq_len
-        # for compressed_kv in [KV_CACHE_COMPRESSION_NONE, KV_CACHE_COMPRESSION_BY_TOKEN, KV_CACHE_COMPRESSION_BY_CHANNEL]:
-        for compressed_kv in [KV_CACHE_COMPRESSION_NONE]:
-            # for head_sz in [128, 256]:
-            for head_sz in [256]:
+        for compressed_kv in [KV_CACHE_COMPRESSION_NONE, KV_CACHE_COMPRESSION_BY_TOKEN, KV_CACHE_COMPRESSION_BY_CHANNEL]:
+        # for compressed_kv in [KV_CACHE_COMPRESSION_NONE]:
+            for head_sz in [128, 256]:
+            # for head_sz in [256]:
                 for sub_block_sz in [16]:
                     print("----------------------------------------------------------------------------------------------------------------------------------------------------------------------")
                     print(f'[PA_BY_CHANNEL_ACC_TESTS]: seq_len={seq_len} block_sz={block_sz} trunk_sz={trunk_sz} kv_cache={compressed_kv} sub_block_sz={sub_block_sz}')
